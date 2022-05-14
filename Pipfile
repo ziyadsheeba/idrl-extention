@@ -20,6 +20,10 @@ seaborn = "*"
 wrapt = "*"
 pygame = "*"
 tk-tools = "*"
+notebook = "*"
+opencv-python-headless = "*"
+cvxpy = "*"
+pandas = "*"
 
 [dev-packages]
 

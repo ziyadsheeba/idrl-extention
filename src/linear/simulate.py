@@ -5,26 +5,43 @@ import os
 import time
 from typing import List, Tuple
 
+import cvxpy as cp
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
-import scipy.optimize
-import typerb
-from joblib import Parallel, delayed
+import pandas as pd
+import seaborn as sns
+import typer
 from scipy import spatial
-from scipy.integrate import quadrature
 from scipy.special import expit
-from scipy.stats import chi2
 from tqdm import tqdm
 
+from src.aquisition_functions.aquisition_functions import (
+    acquisition_function_bald,
+    acquisition_function_bounded_hessian,
+    acquisition_function_expected_hessian,
+    acquisition_function_map_hessian,
+    acquisition_function_random,
+)
 from src.constants import EXPERIMENTS_PATH
-from src.utils import (bernoulli_entropy, matrix_inverse, sample_random_ball,
-                       timeit)
+from src.constraints.constraints import SimpleConstraint
+from src.reward_models.logistic_reward_models import (
+    LinearLogisticRewardModel,
+    LogisticRewardModel,
+)
+from src.utils import (
+    get_2d_direction_points,
+    multivariate_normal_sample,
+    sample_random_ball,
+    timeit,
+)
 
 matplotlib.use("Qt5Agg")
 
-DIMENSIONALITY = 10
+DIMENSIONALITY = 2
 STATE_SUPPORT_SIZE = 1000
+THETA_UPPER = 1
+THETA_LOWER = -1
 
 
 class Expert:
@@ -50,7 +67,14 @@ class Expert:
             x_1.shape == self.true_parameter.shape
         ), "Mismatch between states and parameters dimensions"
         x_delta = x_1 - x_2
-        query = 1 if expit(np.dot(self.true_parameter, x_delta)) >= 0.5 else 0
+        query = 1 if expit(x_delta @ self.true_parameter) >= 0.5 else 0
+        return query
+
+    def query_diff_comparison(self, x_delta: np.ndarray) -> int:
+        query = 1 if expit(x_delta @ self.true_parameter).item() >= 0.5 else 0
+        print(
+            expit(x_delta @ self.true_parameter).item(),
+        )
         return query
 
     def query_single_absolute_value(self, x: np.ndarray) -> float:
@@ -85,164 +109,13 @@ class Policy:
         )
 
 
-class ApproximatePosterior:
-    def __init__(
-        self,
-        weight_space_dim: int,
-        prior_variance: float,
-        prior_mean: np.ndarray = None,
-    ):
-        """_summary_
-
-        Args:
-            weight_space_dim (int): _description_
-            prior_variance (float): _description_
-            prior_mean (np.ndarray, optional): _description_. Defaults to None.
-        """
-        self.weight_space_dim = weight_space_dim
-        if prior_mean is None:
-            self.prior_mean = np.zeros(weight_space_dim)
-        else:
-            self.prior_mean = prior_mean
-
-        self.prior_covariance = prior_variance * np.eye(weight_space_dim)
-        self.prior_precision = matrix_inverse(self.prior_covariance)
-
-        self.mean = self.prior_mean
-        self.precision = self.prior_precision
-        self.covariance = matrix_inverse(self.precision)
-
-    def neglog_posterior(self, theta: np.ndarray, y: np.ndarray, X: np.ndarray):
-        """_summary_
-
-        Args:
-            theta (np.ndarray): _description_
-            y (np.ndarray): _description_
-            X (np.ndarray): _description_
-        """
-        eps = 1e-10
-        y_hat = expit(X @ theta)
-        neg_logprior = 0.5 * (theta - self.prior_mean).dot(self.prior_precision).dot(
-            theta - self.prior_mean
-        )
-        neg_loglikelihood = -np.sum(
-            y * np.log(y_hat + eps) + (1 - y) * np.log(1 - y_hat + eps)
-        )
-        return neg_logprior + neg_loglikelihood
-
-    def neglog_posterior_hessian(self, X: np.ndarray, theta: np.ndarray):
-        """_summary_
-
-        Args:
-            X (np.ndarray): _description_
-            theta (np.ndarray): _description_
-
-        Returns:
-            _type_: _description_
-        """
-        D = np.diag(expit(X @ theta) * (1 - expit(X @ theta)))
-        H = X.T @ D @ X + self.prior_covariance
-        return H
-
-    def get_likelihood(self, x: np.ndarray, y: int, theta: np.ndarray):
-        y_hat = expit(np.dot(x, theta))
-        likelihood = y_hat if y == 1 else 1 - y_hat
-        return likelihood
-
-    def sample_current_distribution(self, n_samples=1):
-        return np.random.multivariate_normal(
-            mean=self.mean, cov=self.covariance, size=n_samples
-        )
-
-    def get_approximate_predictive_distribution(
-        self, x: np.ndarray, n_samples: int
-    ) -> Tuple[float, float]:
-        """_summary_
-
-        Args:
-            x (np.ndarray): _description_
-            n_samples (int): _description_
-
-        Returns:
-            Tuple[float, float]: _description_
-        """
-
-        """
-        # quadrature
-        mu = self.mean.T@x
-        var = x.T@self.covariance@x
-        def fn(f):
-            gaussian = (1/np.sqrt(2*np.pi*var)) * np.exp(-0.5*((f-mu)**2)/var)
-            return gaussian * expit(f)
-        p_1, _ = quadrature(fn, a = -500, b = 500, maxiter = 500) 
-        p_0 = 1-p_1
-        """
-        samples = self.sample_current_distribution(n_samples)
-        p_1 = 0
-        for i in range(samples.shape[0]):
-            sample = samples[i, :]
-            p_1 += self.get_likelihood(x=x, y=1, theta=sample)
-        p_1 = p_1 / n_samples
-        p_0 = 1 - p_1
-        return p_1, p_0
-
-    def neglog_posterior_hessian_bound(self, X: np.ndarray, kappa: float) -> np.ndarray:
-        """_summary_
-
-        Args:
-            X (np.ndarray): _description_
-            kappa (float): _description_
-
-        Returns:
-            np.ndarray: _description_
-        """
-        if isinstance(kappa, float):
-            H = X.T @ X * kappa + self.prior_covariance
-        elif isinstance(kappa, list):
-            H = X.T @ np.diag(kappa) @ X + self.prior_covariance
-        return H
-
-    def update_approximate_posterior(self, X: np.ndarray, y: np.ndarray) -> None:
-        """_summary_
-
-        Args:
-            X (np.ndarray): _description_
-            y (np.ndarray): _description_
-        """
-        theta_0 = self.mean
-        solution = scipy.optimize.minimize(
-            self.neglog_posterior, theta_0, args=(y, X), method="L-BFGS-B"
-        )
-        self.mean = solution.x
-        self.precision = self.neglog_posterior_hessian(X, self.mean)
-        self.covariance = matrix_inverse(self.precision)
-
-    def hallucinate_approximate_posterior(
-        self, X: np.ndarray, y: np.ndarray
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        """_summary_
-
-        Args:
-            X (np.ndarray): _description_
-            y (np.ndarray): _description_
-        """
-        theta_0 = self.mean
-        solution = scipy.optimize.minimize(
-            self.neglog_posterior, theta_0, args=(y, X), method="BFGS"
-        )
-        mean = solution.x
-        precision = self.neglog_posterior_hessian(X, mean)
-        return mean, precision
-
-
 class Agent:
     def __init__(
         self,
         expert: Expert,
         policy: Policy,
-        prior_variance: float,
+        reward_model: LogisticRewardModel,
         state_space_dim: int,
-        name: str,
     ):
         """_summary_
 
@@ -253,242 +126,78 @@ class Agent:
             state_space_dim (int): _description_
             name (str): _description_
         """
-        self.prior_variance = prior_variance
         self.state_space_dim = state_space_dim
-        self.memory = []
-        self.approximate_posterior = ApproximatePosterior(
-            weight_space_dim=state_space_dim, prior_variance=prior_variance
-        )
         self.expert = expert
         self.policy = policy
+        self.reward_model = reward_model
+        self.counter = 0
 
-    def update_memory(self, x_1: np.ndarray, x_2: np.ndarray, y: int):
-        """_summary_
+    def update_belief(self, x: np.ndarray, y: np.ndarray) -> None:
+        self.reward_model.update(x, y)
 
-        Args:
-            x_1 (np.ndarray): _description_
-            x_2 (np.ndarray): _description_
-            y (int): _description_
-        """
-        self.memory.append((x_1 - x_2, y))
-
-    def update_hallucinated_memory(
-        self, hallucinated_memory: List, x_1: np.ndarray, x_2: np.ndarray, y: int
-    ) -> List:
-        """_summary_
-
-        Args:
-            hallucinated_memory (List): _description_
-            x_1 (np.ndarray): _description_
-            x_2 (np.ndarray): _description_
-            y (int): _description_
-
-        Returns:
-            List: _description_
-        """
-        hallucinated_memory.append((x_1 - x_2, y))
-        return hallucinated_memory
-
-    def get_dataset(self, memory: List) -> Tuple[np.ndarray, np.ndarray]:
-        """_summary_
-
-        Args:
-            memory (List): _description_
-
-        Returns:
-            Tuple[np.ndarray, np.ndarray]: _description_
-        """
-        X = np.array([memory[i][0] for i in range(len(memory))])
-        y = np.array([memory[i][1] for i in range(len(memory))])
-        return X, y
-
-    def get_memory_snapshot(self):
-        return copy.deepcopy(self.memory)
-
-    def update_belief(self) -> None:
-        X, y = self.get_dataset(self.memory)
-        self.approximate_posterior.update_approximate_posterior(X, y)
-
-    def hallucinate_update_belief(
-        self, X: np.ndarray, y: np.ndarray
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        mean, precision = self.approximate_posterior.hallucinate_approximate_posterior(
-            X, y
-        )
-        return mean, precision
-
-    def get_hessian_bound(
-        self,
-        X: np.ndarray,
-        mean: np.ndarray,
-        precision: np.ndarray,
-        confidence_level: float = 1e-5,
-    ) -> float:
-        """_summary_
-
-        Args:
-            memory (List): _description_
-            mean (np.ndarray): _description_
-            covariance (np.ndarray): _description_
-
-        Returns:
-            float: _description_
-        """
-
-        level_set = chi2.ppf(confidence_level, self.state_space_dim)  # DOUBLE CHECK
-        P = matrix_inverse(precision) * level_set
-
-        kappa = np.Inf
-        theta_opt = None
-        kappas = []
-        for i in range(X.shape[0]):
-            x_i = X[i, :]
-            theta_opt_i = (P @ x_i) / (np.sqrt(x_i.T @ P @ x_i)) + mean
-            kappa_i = expit(theta_opt_i.T @ x_i) * (1 - expit(theta_opt_i.T @ x_i))
-            if kappa_i < kappa:
-                kappa = kappa_i
-                theta_opt = theta_opt_i
-            kappas.append(kappa_i)
-        """
-        for i in range(X.shape[0]):
-            x_i = X[i, :]
-            kappas.append(expit(theta_opt.T @ x_i) * (1 - expit(theta_opt.T @ x_i)))
-        """
-        return kappa, kappas
-
-    def get_expected_hessian_inverse(
-        self,
-        X: np.ndarray,
-        mean: np.ndarray,
-        covariance: np.ndarray,
-        n_samples: int = 200,
-    ) -> float:
-        # sample from the distribution
-        samples = np.random.multivariate_normal(
-            mean=mean, cov=covariance, size=n_samples
-        )
-        H_inv = 0
-        for i in range(samples.shape[0]):
-            sample = samples[i, :]
-            H = self.approximate_posterior.neglog_posterior_hessian(X, sample)
-            H_inv += matrix_inverse(H)
-        return H_inv / n_samples
-
-    def get_query_cost(self, x_1: np.ndarray, x_2: np.ndarray):
-        """_summary_
-
-        Args:
-            x_1 (np.ndarray): _description_
-            x_2 (np.ndarray): _description_
-
-        Returns:
-            _type_: _description_
-        """
-        f_policy = self.policy.visitation_frequencies
-        X_policy = self.policy.X
-
-        values = []
-        for y in [1, 0]:
-            hallucinated_memory = self.update_hallucinated_memory(
-                self.get_memory_snapshot(), x_1, x_2, y
-            )
-            X, y = self.get_dataset(hallucinated_memory)
-            mean, precision = self.hallucinate_update_belief(X, y)
-
-            H_inv = self.get_expected_hessian_inverse(
-                X=X, mean=mean, covariance=matrix_inverse(precision)
-            )
-            values.append(np.linalg.det(H_inv))
-            # kappa, kappas = self.get_hessian_bound(X=X, mean=mean, precision=precision)
-            # H = self.approximate_posterior.neglog_posterior_hessian_bound(
-            #     X, kappa=kappas
-            # )
-
-            # #value_1 = f_policy.T @ X_policy @ covariance_1 @ X_policy.T @ f_policy
-            # value = 1 / np.linalg.det(H)
-            # values.append(value)
-
-        return np.max(values)
-
-    def get_query_bald_cost(
-        self, x_1: np.ndarray, x_2: np.ndarray, n_samples: int = 500
-    ):
-        p_1, _ = self.approximate_posterior.get_approximate_predictive_distribution(
-            x_1 - x_2, n_samples=n_samples
-        )
-        marginal_entropy = bernoulli_entropy(p_1)
-
-        samples = self.approximate_posterior.sample_current_distribution(n_samples)
-        expected_entropy = 0
-        for i in range(samples.shape[0]):
-            sample = samples[i, :]
-            p_1 = self.approximate_posterior.get_likelihood(
-                x_1 - x_2, y=1, theta=sample
-            )
-            expected_entropy += bernoulli_entropy(p_1)
-        expected_entropy = expected_entropy / n_samples
-        utility = marginal_entropy - expected_entropy
-        return -utility
+    def get_parameters_estimate(self):
+        return self.reward_model.get_parameters_estimate()
 
     def optimize_query(
-        self, algortihm: str = "default", query_counts: int = 400
+        self, algorithm: str = "map_hessian", query_counts: int = 1000
     ) -> Tuple[np.ndarray, np.ndarray]:
         """_summary_
 
         Args:
-            query_counts (int, optional): _description_. Defaults to 100.
+            algortihm (str, optional): _description_. Defaults to "bounded_hessian".
+            query_counts (int, optional): _description_. Defaults to 400.
 
         Returns:
             Tuple[np.ndarray, np.ndarray]: _description_
         """
-
         candidate_queries = [
-            (
-                sample_random_ball(self.state_space_dim),
-                sample_random_ball(self.state_space_dim),
-            )
+            sample_random_ball(self.state_space_dim, radius=1)
+            - sample_random_ball(self.state_space_dim, radius=1)
             for _ in range(query_counts)
         ]
 
-        if algortihm == "default":
-            results = Parallel(n_jobs=-1, backend="multiprocessing")(
-                delayed(self.get_query_cost)(*query) for query in candidate_queries
+        if algorithm == "bounded_hessian":
+            query_best = acquisition_function_bounded_hessian(
+                self.reward_model, candidate_queries
             )
-            best_query = candidate_queries[np.argmin(results)]
-            x_1_best = best_query[0]
-            x_2_best = best_query[1]
-        elif algortihm == "bald":
-            results = Parallel(n_jobs=-1, backend="multiprocessing")(
-                delayed(self.get_query_bald_cost)(*query) for query in candidate_queries
+            # print(query_best)
+        elif algorithm == "map_hessian":
+            query_best = acquisition_function_map_hessian(
+                self.reward_model, candidate_queries
             )
-            best_query = candidate_queries[np.argmin(results)]
-            x_1_best = best_query[0]
-            x_2_best = best_query[1]
-        elif algortihm == "random":
-            x_1_best = candidate_queries[0][0]
-            x_2_best = candidate_queries[0][1]
+        elif algorithm == "random":
+            query_best = acquisition_function_random(
+                self.reward_model, candidate_queries
+            )
+        elif algorithm == "bald":
+            query_best = acquisition_function_bald(self.reward_model, candidate_queries)
+        elif algorithm == "expected_hessian":
+            query_best = acquisition_function_expected_hessian(
+                self.reward_model, candidate_queries
+            )
         else:
-            raise NotImplementedError(f"Algorithm {algortihm} is not implemented.")
+            raise NotImplementedError()
 
-        self.update_memory(
-            x_1_best, x_2_best, self.expert.query_pair_comparison(x_1_best, x_2_best)
-        )
-        self.update_belief()
+        y = self.expert.query_diff_comparison(query_best)
+        self.update_belief(query_best, y)
+        self.counter += 1
+        return query_best[0][0], query_best[0][1], y
 
 
 def simultate(
     num_experiments: int = typer.Option(...), simulation_steps: int = typer.Option(...)
 ):
 
-    seeds = [i for i in range(num_experiments)]
+    seeds = [np.random.randint(0, 10000) for _ in range(num_experiments)]
     results = {}
     for seed in seeds:
-
         np.random.seed(seed)
 
         # Initialize the true parameters of the true reward
-        theta = np.random.normal(loc=0, scale=1, size=(DIMENSIONALITY,))
-
+        # theta = np.random.normal(
+        #     loc=0, scale=(THETA_UPPER - THETA_LOWER) ** 2 / 2, size=(DIMENSIONALITY, 1)
+        # )
+        theta = np.random.normal(loc=0, scale=1, size=(DIMENSIONALITY, 1))
         # Initialize the expert
         expert = Expert(true_parameter=theta)
 
@@ -497,69 +206,94 @@ def simultate(
             state_support_size=STATE_SUPPORT_SIZE, state_space_dim=DIMENSIONALITY
         )
 
+        # Initialize the reward model
+        reward_model = LinearLogisticRewardModel(
+            dim=DIMENSIONALITY,
+            prior_variance=(THETA_UPPER - THETA_LOWER) ** 2 / 2,
+            param_constraint=SimpleConstraint(
+                dim=DIMENSIONALITY, upper=THETA_UPPER, lower=THETA_LOWER
+            ),
+            kappa=1,
+        )
+
         # Initialize the agents
         agent = Agent(
             expert=expert,
             policy=policy,
-            prior_variance=10,
+            reward_model=reward_model,
             state_space_dim=DIMENSIONALITY,
-            name="Default",
-        )
-        bald_agent = Agent(
-            expert=expert,
-            policy=policy,
-            prior_variance=10,
-            state_space_dim=DIMENSIONALITY,
-            name="BALD",
-        )
-        random_agent = Agent(
-            expert=expert,
-            policy=policy,
-            prior_variance=10,
-            state_space_dim=DIMENSIONALITY,
-            name="Random",
         )
 
         results[seed] = {algortihm: [] for algortihm in ["default", "bald", "random"]}
 
         plt.ion()
         fig, ax = plt.subplots(figsize=(15, 5))
+        fig2, ax2 = plt.subplots(figsize=(15, 5))
+
         plt.title("Active query learning")
         plt.xlabel("steps")
         plt.ylabel("cosine similarity")
         ax.set_yscale("log")
         steps = []
+        queries_x = []
+        queries_y = []
+        labels = []
+        palette = {1: "orange", 0: "pink"}
+
         for step in range(simulation_steps):
 
-            agent.optimize_query(algortihm="default")
-            bald_agent.optimize_query(algortihm="bald")
-            random_agent.optimize_query(algortihm="random")
+            query_x, query_y, label = agent.optimize_query()
+            df_query = dict(
+                zip(["x", "y", "label"], [queries_x, queries_y, labels]), index=[0]
+            )
 
-            theta_hat = agent.approximate_posterior.mean
-            theta_hat_random = random_agent.approximate_posterior.mean
-            theta_hat_bald = bald_agent.approximate_posterior.mean
+            theta_hat = agent.get_parameters_estimate()
 
             cosine_distance = spatial.distance.cosine(theta, theta_hat)
-            cosine_distance_random = spatial.distance.cosine(theta, theta_hat_random)
-            cosine_distance_bald = spatial.distance.cosine(theta, theta_hat_bald)
 
             results[seed]["default"].append(cosine_distance)
-            results[seed]["bald"].append(cosine_distance_bald)
-            results[seed]["random"].append(cosine_distance_random)
-
             steps.append(step)
-
             ax.plot(steps, results[seed]["default"], color="green")
-            ax.plot(steps, results[seed]["bald"], color="orange")
-            ax.plot(steps, results[seed]["random"], color="red")
+
+            queries_x.append(query_x)
+            queries_y.append(query_y)
+            labels.append(label)
+            df = pd.DataFrame(
+                dict(zip(["x", "y", "label"], [queries_x, queries_y, labels]))
+            )
+            ax2.clear()
+            sns.scatterplot(
+                data=df,
+                x="x",
+                y="y",
+                hue="label",
+                palette=palette,
+                legend=True,
+                ax=ax2,
+            )
+            point_1, point_2 = get_2d_direction_points(theta)
+            sns.lineplot(
+                x=[point_1[0], point_2[0]],
+                y=[point_1[1], point_2[1]],
+                ax=ax2,
+                color="green",
+            )
+            point_1, point_2 = get_2d_direction_points(
+                theta_hat / np.linalg.norm(theta_hat)
+            )
+            sns.lineplot(
+                x=[point_1[0], point_2[0]],
+                y=[point_1[1], point_2[1]],
+                ax=ax2,
+                color="red",
+            )
 
             print(f"Step: {step}")
             print(
                 "Cosine Distance: ",
                 f"Optimized: {cosine_distance}",
-                f"BALD: {cosine_distance_bald}",
-                f"Random: {cosine_distance_random}",
             )
+            print(df["label"].value_counts())
             plt.pause(0.00001)
             plt.draw()
         os.makedirs(EXPERIMENTS_PATH / "linear", exist_ok=True)

@@ -1,7 +1,10 @@
+import os
+import subprocess
 import time
 from functools import wraps
 from typing import Any, Iterable, List, Optional, Set, Union
 
+import cv2
 import numpy as np
 import wrapt
 from numpy import linalg, random
@@ -19,10 +22,10 @@ def sample_random_ball(dimension: int, radius: int = 1):
     Returns:
         _type_: _description_
     """
-    random_directions = random.normal(size=(dimension,))
+    random_directions = random.normal(size=(1, dimension))
     random_directions /= linalg.norm(random_directions, axis=0)
     random_radii = random.random() ** (1 / dimension)
-    return radius * (random_directions * random_radii).T
+    return radius * (random_directions * random_radii)
 
 
 def timeit(func):
@@ -146,18 +149,28 @@ def pdf_multivariate_gauss(x, mu, cov):
     return float(part1 * np.exp(part2))
 
 
-def multivariate_normal_sample(mu, cov, n_samples=1):
-    """
-    Uses the Cholesky decomposition of the covariance matrix which provides
-    a significant speedup over the standard sampling that numpy uses.
+def multivariate_normal_sample(
+    mu: np.ndarray, cov: np.ndarray, n_samples: int = 1
+) -> np.ndarray:
+    """Uses the Cholesky decomposition of the covariance matrix which provides
+        a significant speedup over the standard sampling that numpy uses.
+
+    Args:
+        mu (np.ndarray): mean vector.
+        cov (np.ndarray): covariance matrix.
+        n_samples (int, optional): number of samples to generate. Defaults to 1.
+
+    Returns:
+        np.ndarray: a matrix of shape (dim, n_samples), where dim is the dimensionality
+            of the sample space.
     """
     A = np.linalg.cholesky(cov)
     z = np.random.randn(mu.shape[0], n_samples)
     if len(mu.shape) == 1:
         mu = np.expand_dims(mu, 1)
     mu_stacked = np.repeat(mu, n_samples, axis=1)
-    samples = mu_stacked + np.dot(A, z)
-    return samples
+    samples = mu_stacked + A @ z
+    return samples.T
 
 
 def get_hash(x):
@@ -348,3 +361,79 @@ def get_acquisition_function_label_clean(acquisition_function, latex=False):
     else:
         clean_label = {"rand": "Unif.", "var": "IG-GP", "ei": "EI", "epd": "EPD"}[label]
     return clean_label
+
+
+def save_video(rgbs, filename, fps=20.0):
+    """
+    Writes out a series of RGB arrays as a video with a specified framerate.
+    Args:
+        ims (list): numpy arrays if the same size
+        filename (str): name of the output file (should end on .mp4)
+        fps (float): frames per second
+    """
+    if filename[-4:] == ".gif":
+        gif_output = True
+        filename_gif = filename
+        filename = filename_gif + ".mp4"
+    else:
+        gif_output = False
+
+    if filename[-4:] != ".mp4":
+        print("Warning: filename should end on .mp4, not '{}'".format(filename))
+
+    # write .mp4
+    ims = [cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR) for rgb in rgbs]
+    # Define the codec and create VideoWriter object
+    fourcc = cv2.VideoWriter_fourcc("m", "p", "4", "v")
+    (height, width, _) = ims[0].shape
+    writer = cv2.VideoWriter(filename, fourcc, fps, (width, height))
+    for im in ims:
+        writer.write(im)
+    writer.release()
+
+    if gif_output:
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-i",
+                filename,
+                filename_gif,
+            ]
+        )
+        os.remove(filename)
+
+
+def record_gym_video(env, policy, filename):
+    """
+    Rollout a policy in a gym environment and record a video of its performance.
+    Args:
+        env (gym.Env): an environment that supports rgb_array rendering
+        policy: a policy object that implements a get_action method
+    """
+    obs = env.reset()
+    rgb = env.render("rgb_array")
+    rgb = np.array(rgb, dtype=np.uint8)
+    images = [rgb]
+    done = False
+    while not done:  # np all for vectorized envs
+        a = policy.get_action(obs)
+        obs, rew, done, info = env.step(a)
+        rgb = env.render("rgb_array")
+        rgb = np.array(rgb, dtype=np.uint8)
+        images.append(rgb)
+    save_video(images, filename)
+
+
+def get_2d_direction_points(direction: np.ndarray, scale_max=2, scale_min=-2):
+    direction = direction.squeeze()
+    direction = direction / np.linalg.norm(direction)
+    point1 = scale_max * direction
+    point1 = np.array([-point1[1], point1[0]])
+    point2 = scale_min * direction
+    point2 = np.array([-point2[1], point2[0]])
+
+    return point1, point2
