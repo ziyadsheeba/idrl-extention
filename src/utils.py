@@ -428,7 +428,7 @@ def record_gym_video(env, policy, filename):
     save_video(images, filename)
 
 
-def get_2d_direction_points(direction: np.ndarray, scale_max=2, scale_min=-2):
+def get_2d_direction_points(direction: np.ndarray, scale_max=3, scale_min=-3):
     direction = direction.squeeze()
     direction = direction / np.linalg.norm(direction)
     point1 = scale_max * direction

@@ -37,6 +37,7 @@ from src.utils import (
 )
 
 matplotlib.use("Qt5Agg")
+plt.style.use("ggplot")
 
 DIMENSIONALITY = 2
 STATE_SUPPORT_SIZE = 1000
@@ -160,7 +161,6 @@ class Agent:
             query_best = acquisition_function_bounded_hessian(
                 self.reward_model, candidate_queries
             )
-            # print(query_best)
         elif algorithm == "map_hessian":
             query_best = acquisition_function_map_hessian(
                 self.reward_model, candidate_queries
@@ -194,10 +194,10 @@ def simultate(
         np.random.seed(seed)
 
         # Initialize the true parameters of the true reward
-        # theta = np.random.normal(
-        #     loc=0, scale=(THETA_UPPER - THETA_LOWER) ** 2 / 2, size=(DIMENSIONALITY, 1)
-        # )
-        theta = np.random.normal(loc=0, scale=1, size=(DIMENSIONALITY, 1))
+        theta = np.random.normal(
+            loc=0, scale=(THETA_UPPER - THETA_LOWER) ** 2 / 2, size=(DIMENSIONALITY, 1)
+        )
+
         # Initialize the expert
         expert = Expert(true_parameter=theta)
 
@@ -209,11 +209,10 @@ def simultate(
         # Initialize the reward model
         reward_model = LinearLogisticRewardModel(
             dim=DIMENSIONALITY,
-            prior_variance=(THETA_UPPER - THETA_LOWER) ** 2 / 2,
+            prior_variance=100 * (THETA_UPPER - THETA_LOWER) ** 2 / 2,
             param_constraint=SimpleConstraint(
                 dim=DIMENSIONALITY, upper=THETA_UPPER, lower=THETA_LOWER
             ),
-            kappa=1,
         )
 
         # Initialize the agents
@@ -227,13 +226,13 @@ def simultate(
         results[seed] = {algortihm: [] for algortihm in ["default", "bald", "random"]}
 
         plt.ion()
-        fig, ax = plt.subplots(figsize=(15, 5))
-        fig2, ax2 = plt.subplots(figsize=(15, 5))
+        fig, axs = plt.subplots(2, figsize=(20, 10))
+        box = axs[1].get_position()
 
         plt.title("Active query learning")
         plt.xlabel("steps")
         plt.ylabel("cosine similarity")
-        ax.set_yscale("log")
+        axs[0].set_yscale("log")
         steps = []
         queries_x = []
         queries_y = []
@@ -253,7 +252,10 @@ def simultate(
 
             results[seed]["default"].append(cosine_distance)
             steps.append(step)
-            ax.plot(steps, results[seed]["default"], color="green")
+            axs[0].plot(steps, results[seed]["default"], color="green")
+            axs[0].set_title("Cosine Distance")
+            axs[0].set_xlabel("Steps")
+            axs[0].set_ylabel("Cosine Distance")
 
             queries_x.append(query_x)
             queries_y.append(query_y)
@@ -261,7 +263,7 @@ def simultate(
             df = pd.DataFrame(
                 dict(zip(["x", "y", "label"], [queries_x, queries_y, labels]))
             )
-            ax2.clear()
+            axs[1].clear()
             sns.scatterplot(
                 data=df,
                 x="x",
@@ -269,14 +271,15 @@ def simultate(
                 hue="label",
                 palette=palette,
                 legend=True,
-                ax=ax2,
+                ax=axs[1],
             )
             point_1, point_2 = get_2d_direction_points(theta)
             sns.lineplot(
                 x=[point_1[0], point_2[0]],
                 y=[point_1[1], point_2[1]],
-                ax=ax2,
+                ax=axs[1],
                 color="green",
+                label="True Boundary",
             )
             point_1, point_2 = get_2d_direction_points(
                 theta_hat / np.linalg.norm(theta_hat)
@@ -284,9 +287,13 @@ def simultate(
             sns.lineplot(
                 x=[point_1[0], point_2[0]],
                 y=[point_1[1], point_2[1]],
-                ax=ax2,
+                ax=axs[1],
                 color="red",
+                label="MAP Boundary",
             )
+            axs[1].set_title("Query Visualization")
+            axs[1].set_xlabel("x1")
+            axs[1].set_ylabel("x2")
 
             print(f"Step: {step}")
             print(
@@ -294,6 +301,8 @@ def simultate(
                 f"Optimized: {cosine_distance}",
             )
             print(df["label"].value_counts())
+            axs[1].set_position([box.x0, box.y0, box.width * 0.95, box.height])
+            plt.legend(bbox_to_anchor=(1.05, 1), loc=2)
             plt.pause(0.00001)
             plt.draw()
         os.makedirs(EXPERIMENTS_PATH / "linear", exist_ok=True)

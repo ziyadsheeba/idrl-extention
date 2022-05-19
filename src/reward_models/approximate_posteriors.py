@@ -51,7 +51,7 @@ class LaplaceApproximation(ApproximatePosterior):
 
     def sample(self, n_samples: int = 1) -> np.ndarray:
         return multivariate_normal_sample(
-            mu=self._mean, cov=self.get_covariance(), n_samples=n_samples
+            mu=self.get_mean(), cov=self.get_covariance(), n_samples=n_samples
         )
 
     def simulate_update(
@@ -61,7 +61,6 @@ class LaplaceApproximation(ApproximatePosterior):
             theta_0 = np.zeros(self.dim)
         else:
             theta_0 = self._mean
-        theta_0 = np.zeros(self.dim)
         solution = scipy.optimize.minimize(
             self.neglog_posterior, theta_0, args=(y, X), method="L-BFGS-B"
         )

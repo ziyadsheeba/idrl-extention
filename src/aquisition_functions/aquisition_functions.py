@@ -2,6 +2,7 @@ from typing import List
 
 import numpy as np
 
+from src.policies.basic_policy import Policy
 from src.reward_models.logistic_reward_models import LogisticRewardModel
 from src.utils import (
     argmax_over_index_set,
@@ -30,15 +31,31 @@ def acquisition_function_bounded_hessian(
     reward_model: LogisticRewardModel, candidate_queries: List[np.array]
 ) -> np.ndarray:
     utility = []
-    # H_inv = reward_model.hessian_bound_inv
-    # print(H_inv)
-    # print(np.linalg.eigh(H_inv))
+    H_inv = reward_model.hessian_bound_inv
+    print("eig: ", np.linalg.eigh(H_inv))
+    print("H_inv: ", H_inv)
+    print("kappa: ", reward_model.kappa)
+    print()
     for x in candidate_queries:
         # TO REFACTOR
-        H_inv, _ = reward_model.increment_inv_hessian_bound(x)
-        utility.append(-np.linalg.det(H_inv))
-        # utility.append((x @ H_inv @ x.T).item())
+        # H_inv, _ = reward_model.increment_inv_hessian_bound(x)
+        # utility.append(-np.linalg.det(H_inv))
+        utility.append((x @ H_inv @ x.T).item())
 
+    argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
+    return candidate_queries[np.random.choice(argmax)]
+
+
+def acquisition_function_bounded_hessian_policy(
+    reward_model: LogisticRewardModel, policy: Policy, candidate_queries: List[np.array]
+) -> np.ndarray:
+    utility = []
+    H_inv = reward_model.hessian_bound_inv
+    for x in candidate_queries:
+        # H_inv, _ = reward_model.increment_inv_hessian_bound(x)
+        part_1 = ((policy.v.T @ H_inv @ x.T).item()) ** 2
+        part_2 = 1 + reward_model.kappa * (x @ H_inv @ x.T).item()
+        utility.append(part_1 / part_2)
     argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
     return candidate_queries[np.random.choice(argmax)]
 
@@ -52,6 +69,22 @@ def acquisition_function_map_hessian(
         for y in [1, 0]:
             _, H_inv = reward_model.get_simulated_update(x, y)
             utility_y.append(-np.linalg.det(H_inv))
+        utility.append(min(utility_y))
+
+    argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
+    return candidate_queries[np.random.choice(argmax)]
+
+
+def acquisition_function_map_hessian_policy(
+    reward_model: LogisticRewardModel, policy: Policy, candidate_queries: List[np.array]
+) -> np.ndarray:
+    utility = []
+    utility = []
+    for x in candidate_queries:
+        utility_y = []
+        for y in [1, 0]:
+            _, H_inv = reward_model.get_simulated_update(x, y)
+            utility_y.append((-policy.v.T @ (H_inv) @ policy.v).item())
         utility.append(min(utility_y))
 
     argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
@@ -85,7 +118,7 @@ def acquisition_function_expected_hessian(
 def acquisition_function_bald(
     reward_model: LogisticRewardModel,
     candidate_queries: List[np.array],
-    n_samples: int = 400,
+    n_samples: int = 50,
 ) -> np.ndarray:
     utility = []
     for x in candidate_queries:

@@ -94,7 +94,6 @@ class LinearLogisticRewardModel(LogisticRewardModel):
 
         self.X = []
         self.y = []
-
         self.hessian_bound_inv = self.prior_precision
         self.kappa = kappa
 
@@ -265,6 +264,7 @@ class LinearLogisticRewardModel(LogisticRewardModel):
 
     def update_inv_hessian_bound(self, x: np.ndarray) -> None:
         self.hessian_bound_inv, self.kappa = self.increment_inv_hessian_bound(x)
+        print(f"kappa: {self.kappa}")
 
     def increment_inv_hessian_bound(self, x: np.ndarray) -> Tuple[np.ndarray, float]:
         if self.kappa is None:
