@@ -2,10 +2,11 @@ import os
 import subprocess
 import time
 from functools import wraps
-from typing import Any, Iterable, List, Optional, Set, Union
+from typing import Any, Dict, Iterable, List, Optional, Set, Union
 
 import cv2
 import numpy as np
+import pandas as pd
 import wrapt
 from numpy import linalg, random
 from scipy.linalg.lapack import dpotrf, dpotri
@@ -26,6 +27,28 @@ def sample_random_ball(dimension: int, radius: int = 1):
     random_directions /= linalg.norm(random_directions, axis=0)
     random_radii = random.random() ** (1 / dimension)
     return radius * (random_directions * random_radii)
+
+
+def get_grid_points(
+    x_max: float = 2, x_min: float = -2, dim: int = 2, n_points=20j
+) -> list:
+    X, Y = np.mgrid[x_min:x_max:n_points, x_min:x_max:n_points]
+    positions = np.vstack([X.ravel(), Y.ravel()]).T
+    positions = [
+        np.expand_dims(positions[i, :], axis=0) for i in range(positions.shape[0])
+    ]
+    return positions
+
+
+def from_utility_dict_to_heatmap(utility_dict: Dict[str, float]) -> pd.DataFrame:
+    queries = [np.fromstring(x) for x in utility_dict.keys()]
+    values = list(utility_dict.values())
+    df = pd.DataFrame(columns=["x", "y"], data=queries)
+    df = df.round(2)
+    df.insert(df.shape[1], "utility", values)
+    heatmap = df.pivot(index="y", columns="x", values="utility")
+    heatmap = heatmap.sort_index(ascending=False)
+    return heatmap
 
 
 def timeit(func):

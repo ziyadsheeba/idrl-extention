@@ -18,8 +18,11 @@ from tqdm import tqdm
 
 from src.aquisition_functions.aquisition_functions import (
     acquisition_function_bald,
+    acquisition_function_bounded_coordinate_hessian,
     acquisition_function_bounded_hessian,
+    acquisition_function_bounded_hessian_trace,
     acquisition_function_expected_hessian,
+    acquisition_function_map_convex_bound,
     acquisition_function_map_hessian,
     acquisition_function_random,
 )
@@ -30,7 +33,9 @@ from src.reward_models.logistic_reward_models import (
     LogisticRewardModel,
 )
 from src.utils import (
+    from_utility_dict_to_heatmap,
     get_2d_direction_points,
+    get_grid_points,
     multivariate_normal_sample,
     sample_random_ball,
     timeit,
@@ -41,8 +46,11 @@ plt.style.use("ggplot")
 
 DIMENSIONALITY = 2
 STATE_SUPPORT_SIZE = 1000
-THETA_UPPER = 1
-THETA_LOWER = -1
+THETA_UPPER = 2
+THETA_LOWER = -2
+X_LOWER = -1
+X_UPPER = 1
+GRID_RES = 20j
 
 
 class Expert:
@@ -140,7 +148,10 @@ class Agent:
         return self.reward_model.get_parameters_estimate()
 
     def optimize_query(
-        self, algorithm: str = "map_hessian", query_counts: int = 1000
+        self,
+        algorithm: str = "expected_hessian",
+        query_counts: int = 2000,
+        return_utility: bool = True,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """_summary_
 
@@ -151,28 +162,44 @@ class Agent:
         Returns:
             Tuple[np.ndarray, np.ndarray]: _description_
         """
-        candidate_queries = [
-            sample_random_ball(self.state_space_dim, radius=1)
-            - sample_random_ball(self.state_space_dim, radius=1)
-            for _ in range(query_counts)
-        ]
-
+        # candidate_queries = [
+        #     sample_random_ball(self.state_space_dim, radius=1)
+        #     - sample_random_ball(self.state_space_dim, radius=1)
+        #     for _ in range(query_counts)
+        # ]
+        candidate_queries = get_grid_points(
+            x_min=X_LOWER, x_max=X_UPPER, n_points=GRID_RES
+        )
         if algorithm == "bounded_hessian":
-            query_best = acquisition_function_bounded_hessian(
+            query_best, utility = acquisition_function_bounded_hessian(
                 self.reward_model, candidate_queries
             )
         elif algorithm == "map_hessian":
-            query_best = acquisition_function_map_hessian(
+            query_best, utility = acquisition_function_map_hessian(
                 self.reward_model, candidate_queries
             )
         elif algorithm == "random":
-            query_best = acquisition_function_random(
+            query_best, utility = acquisition_function_random(
                 self.reward_model, candidate_queries
             )
         elif algorithm == "bald":
-            query_best = acquisition_function_bald(self.reward_model, candidate_queries)
+            query_best, utility = acquisition_function_bald(
+                self.reward_model, candidate_queries
+            )
         elif algorithm == "expected_hessian":
-            query_best = acquisition_function_expected_hessian(
+            query_best, utility = acquisition_function_expected_hessian(
+                self.reward_model, candidate_queries
+            )
+        elif algorithm == "bounded_coordinate_hessian":
+            query_best, utility = acquisition_function_bounded_coordinate_hessian(
+                self.reward_model, candidate_queries
+            )
+        elif algorithm == "map_convex_bound":
+            query_best, utility = acquisition_function_map_convex_bound(
+                self.reward_model, candidate_queries
+            )
+        elif algorithm == "bounded_hessian_trace":
+            query_best, utility = acquisition_function_bounded_hessian_trace(
                 self.reward_model, candidate_queries
             )
         else:
@@ -181,14 +208,23 @@ class Agent:
         y = self.expert.query_diff_comparison(query_best)
         self.update_belief(query_best, y)
         self.counter += 1
-        return query_best[0][0], query_best[0][1], y
+        if return_utility:
+            candidate_queries = [x.tobytes() for x in candidate_queries]
+            return (
+                query_best[0][0],
+                query_best[0][1],
+                y,
+                dict(zip(candidate_queries, utility)),
+            )
+        else:
+            return query_best[0][0], query_best[0][1], y
 
 
 def simultate(
     num_experiments: int = typer.Option(...), simulation_steps: int = typer.Option(...)
 ):
 
-    seeds = [np.random.randint(0, 10000) for _ in range(num_experiments)]
+    seeds = [np.random.randint(0, 100000) for _ in range(num_experiments)]
     results = {}
     for seed in seeds:
         np.random.seed(seed)
@@ -209,7 +245,7 @@ def simultate(
         # Initialize the reward model
         reward_model = LinearLogisticRewardModel(
             dim=DIMENSIONALITY,
-            prior_variance=100 * (THETA_UPPER - THETA_LOWER) ** 2 / 2,
+            prior_variance=(THETA_UPPER - THETA_LOWER) ** 2 / 2,
             param_constraint=SimpleConstraint(
                 dim=DIMENSIONALITY, upper=THETA_UPPER, lower=THETA_LOWER
             ),
@@ -226,7 +262,7 @@ def simultate(
         results[seed] = {algortihm: [] for algortihm in ["default", "bald", "random"]}
 
         plt.ion()
-        fig, axs = plt.subplots(2, figsize=(20, 10))
+        fig, axs = plt.subplots(3, figsize=(20, 10))
         box = axs[1].get_position()
 
         plt.title("Active query learning")
@@ -241,28 +277,30 @@ def simultate(
 
         for step in range(simulation_steps):
 
-            query_x, query_y, label = agent.optimize_query()
+            query_x, query_y, label, utility = agent.optimize_query()
             df_query = dict(
                 zip(["x", "y", "label"], [queries_x, queries_y, labels]), index=[0]
             )
-
             theta_hat = agent.get_parameters_estimate()
-
             cosine_distance = spatial.distance.cosine(theta, theta_hat)
-
             results[seed]["default"].append(cosine_distance)
             steps.append(step)
+
+            queries_x.append(query_x)
+            queries_y.append(query_y)
+            labels.append(label)
+
+            # Regret Viz
             axs[0].plot(steps, results[seed]["default"], color="green")
             axs[0].set_title("Cosine Distance")
             axs[0].set_xlabel("Steps")
             axs[0].set_ylabel("Cosine Distance")
 
-            queries_x.append(query_x)
-            queries_y.append(query_y)
-            labels.append(label)
             df = pd.DataFrame(
                 dict(zip(["x", "y", "label"], [queries_x, queries_y, labels]))
             )
+
+            # Query viz
             axs[1].clear()
             sns.scatterplot(
                 data=df,
@@ -273,6 +311,14 @@ def simultate(
                 legend=True,
                 ax=axs[1],
             )
+            axs[1].plot(
+                df.iloc[-1]["x"],
+                df.iloc[-1]["y"],
+                marker="x",
+                color="black",
+                markersize=10,
+            )
+
             point_1, point_2 = get_2d_direction_points(theta)
             sns.lineplot(
                 x=[point_1[0], point_2[0]],
@@ -294,6 +340,14 @@ def simultate(
             axs[1].set_title("Query Visualization")
             axs[1].set_xlabel("x1")
             axs[1].set_ylabel("x2")
+            axs[1].set_ylim(X_LOWER - 0.1, X_UPPER + 0.1)
+            axs[1].set_xlim(X_LOWER - 0.1, X_UPPER + 0.1)
+            axs[1].set_position([box.x0, box.y0, box.width * 0.95, box.height])
+
+            # heatmap
+            axs[2].clear()
+            heatmap = from_utility_dict_to_heatmap(utility)
+            sns.heatmap(heatmap, cmap="YlGnBu", annot=True, ax=axs[2], cbar=False)
 
             print(f"Step: {step}")
             print(
@@ -301,11 +355,11 @@ def simultate(
                 f"Optimized: {cosine_distance}",
             )
             print(df["label"].value_counts())
-            axs[1].set_position([box.x0, box.y0, box.width * 0.95, box.height])
             plt.legend(bbox_to_anchor=(1.05, 1), loc=2)
             plt.pause(0.00001)
             plt.draw()
-        os.makedirs(EXPERIMENTS_PATH / "linear", exist_ok=True)
+        plt.close("all")
+    os.makedirs(EXPERIMENTS_PATH / "linear", exist_ok=True)
     with open(str(EXPERIMENTS_PATH / "linear" / "results.json"), "w") as f:
         json.dump(results, f)
 

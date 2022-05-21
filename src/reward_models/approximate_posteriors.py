@@ -66,4 +66,4 @@ class LaplaceApproximation(ApproximatePosterior):
         )
         mean = solution.x
         hess_inv = matrix_inverse(self.hessian(mean, X))
-        return mean, hess_inv
+        return np.expand_dims(mean, axis=-1), hess_inv
