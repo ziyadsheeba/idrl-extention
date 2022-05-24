@@ -40,12 +40,18 @@ def get_grid_points(
     return positions
 
 
-def from_utility_dict_to_heatmap(utility_dict: Dict[str, float]) -> pd.DataFrame:
+def from_utility_dict_to_heatmap(
+    utility_dict: Dict[str, float], normalize=True
+) -> pd.DataFrame:
     queries = [np.fromstring(x) for x in utility_dict.keys()]
     values = list(utility_dict.values())
     df = pd.DataFrame(columns=["x", "y"], data=queries)
-    df = df.round(2)
     df.insert(df.shape[1], "utility", values)
+    if normalize:
+        df["utility"] = (df["utility"] - df["utility"].min()) / (
+            df["utility"].max() - df["utility"].min()
+        )
+    df = df.round(2)
     heatmap = df.pivot(index="y", columns="x", values="utility")
     heatmap = heatmap.sort_index(ascending=False)
     return heatmap

@@ -24,6 +24,8 @@ from src.aquisition_functions.aquisition_functions import (
     acquisition_function_expected_hessian,
     acquisition_function_map_convex_bound,
     acquisition_function_map_hessian,
+    acquisition_function_map_hessian_trace,
+    acquisition_function_optimal_hessian,
     acquisition_function_random,
 )
 from src.constants import EXPERIMENTS_PATH
@@ -46,11 +48,13 @@ plt.style.use("ggplot")
 
 DIMENSIONALITY = 2
 STATE_SUPPORT_SIZE = 1000
-THETA_UPPER = 2
-THETA_LOWER = -2
+THETA_UPPER = 1
+THETA_LOWER = -1
 X_LOWER = -1
 X_UPPER = 1
-GRID_RES = 20j
+GRID_RES = 50j
+PRIOR_VARIANCE_SCALE = 100
+ALGORITHM = "bounded_hessian"
 
 
 class Expert:
@@ -76,14 +80,14 @@ class Expert:
             x_1.shape == self.true_parameter.shape
         ), "Mismatch between states and parameters dimensions"
         x_delta = x_1 - x_2
-        query = 1 if expit(x_delta @ self.true_parameter) >= 0.5 else 0
+        p = expit(x_delta @ self.true_parameter).item()
+        query = numpy.random.choice([1, 0], p=[p, 1 - p])
+
         return query
 
     def query_diff_comparison(self, x_delta: np.ndarray) -> int:
-        query = 1 if expit(x_delta @ self.true_parameter).item() >= 0.5 else 0
-        print(
-            expit(x_delta @ self.true_parameter).item(),
-        )
+        p = expit(x_delta @ self.true_parameter).item()
+        query = np.random.choice([1, 0], p=[p, 1 - p])
         return query
 
     def query_single_absolute_value(self, x: np.ndarray) -> float:
@@ -149,7 +153,7 @@ class Agent:
 
     def optimize_query(
         self,
-        algorithm: str = "expected_hessian",
+        algorithm: str = "map_hessian_trace",
         query_counts: int = 2000,
         return_utility: bool = True,
     ) -> Tuple[np.ndarray, np.ndarray]:
@@ -202,11 +206,19 @@ class Agent:
             query_best, utility = acquisition_function_bounded_hessian_trace(
                 self.reward_model, candidate_queries
             )
+        elif algorithm == "optimal_hessian":
+            query_best, utility = acquisition_function_optimal_hessian(
+                self.reward_model, candidate_queries, theta=self.expert.true_parameter
+            )
+        elif algorithm == "map_hessian_trace":
+            query_best, utility = acquisition_function_map_hessian_trace(
+                self.reward_model, candidate_queries
+            )
         else:
             raise NotImplementedError()
 
         y = self.expert.query_diff_comparison(query_best)
-        self.update_belief(query_best, y)
+        # self.update_belief(query_best, y)
         self.counter += 1
         if return_utility:
             candidate_queries = [x.tobytes() for x in candidate_queries]
@@ -245,7 +257,7 @@ def simultate(
         # Initialize the reward model
         reward_model = LinearLogisticRewardModel(
             dim=DIMENSIONALITY,
-            prior_variance=(THETA_UPPER - THETA_LOWER) ** 2 / 2,
+            prior_variance=PRIOR_VARIANCE_SCALE * (THETA_UPPER - THETA_LOWER) ** 2 / 2,
             param_constraint=SimpleConstraint(
                 dim=DIMENSIONALITY, upper=THETA_UPPER, lower=THETA_LOWER
             ),
@@ -262,22 +274,14 @@ def simultate(
         results[seed] = {algortihm: [] for algortihm in ["default", "bald", "random"]}
 
         plt.ion()
-        fig, axs = plt.subplots(3, figsize=(20, 10))
-        box = axs[1].get_position()
-
-        plt.title("Active query learning")
-        plt.xlabel("steps")
-        plt.ylabel("cosine similarity")
-        axs[0].set_yscale("log")
+        fig, axs = plt.subplots(3, 2, gridspec_kw={"width_ratios": [100, 5]})
         steps = []
         queries_x = []
         queries_y = []
         labels = []
         palette = {1: "orange", 0: "pink"}
-
         for step in range(simulation_steps):
-
-            query_x, query_y, label, utility = agent.optimize_query()
+            query_x, query_y, label, utility = agent.optimize_query(algorithm=ALGORITHM)
             df_query = dict(
                 zip(["x", "y", "label"], [queries_x, queries_y, labels]), index=[0]
             )
@@ -291,17 +295,18 @@ def simultate(
             labels.append(label)
 
             # Regret Viz
-            axs[0].plot(steps, results[seed]["default"], color="green")
-            axs[0].set_title("Cosine Distance")
-            axs[0].set_xlabel("Steps")
-            axs[0].set_ylabel("Cosine Distance")
+            axs[0, 0].plot(steps, results[seed]["default"], color="green")
+            axs[0, 0].set_title("Regret")
+            axs[0, 0].set_xlabel("Steps")
+            axs[0, 0].set_ylabel("Cosine Distance")
+            axs[0, 0].set_yscale("log")
 
             df = pd.DataFrame(
                 dict(zip(["x", "y", "label"], [queries_x, queries_y, labels]))
             )
 
             # Query viz
-            axs[1].clear()
+            axs[1, 0].clear()
             sns.scatterplot(
                 data=df,
                 x="x",
@@ -309,9 +314,9 @@ def simultate(
                 hue="label",
                 palette=palette,
                 legend=True,
-                ax=axs[1],
+                ax=axs[1, 0],
             )
-            axs[1].plot(
+            axs[1, 0].plot(
                 df.iloc[-1]["x"],
                 df.iloc[-1]["y"],
                 marker="x",
@@ -323,7 +328,7 @@ def simultate(
             sns.lineplot(
                 x=[point_1[0], point_2[0]],
                 y=[point_1[1], point_2[1]],
-                ax=axs[1],
+                ax=axs[1, 0],
                 color="green",
                 label="True Boundary",
             )
@@ -333,29 +338,42 @@ def simultate(
             sns.lineplot(
                 x=[point_1[0], point_2[0]],
                 y=[point_1[1], point_2[1]],
-                ax=axs[1],
+                ax=axs[1, 0],
                 color="red",
                 label="MAP Boundary",
             )
-            axs[1].set_title("Query Visualization")
-            axs[1].set_xlabel("x1")
-            axs[1].set_ylabel("x2")
-            axs[1].set_ylim(X_LOWER - 0.1, X_UPPER + 0.1)
-            axs[1].set_xlim(X_LOWER - 0.1, X_UPPER + 0.1)
-            axs[1].set_position([box.x0, box.y0, box.width * 0.95, box.height])
+            axs[1, 0].set_title("Query Visualization")
+            axs[1, 0].set_xlabel("x1")
+            axs[1, 0].set_ylabel("x2")
+            axs[1, 0].set_ylim(X_LOWER - 0.05, X_UPPER + 0.05)
+            axs[1, 0].set_xlim(X_LOWER - 0.05, X_UPPER + 0.05)
 
-            # heatmap
-            axs[2].clear()
+            # Heatmap Viz
+            axs[2, 0].clear()
             heatmap = from_utility_dict_to_heatmap(utility)
-            sns.heatmap(heatmap, cmap="YlGnBu", annot=True, ax=axs[2], cbar=False)
+            sns.heatmap(
+                heatmap,
+                cmap="YlGnBu",
+                annot=True,
+                ax=axs[2, 0],
+                cbar_ax=axs[2, 1],
+                vmin=0,
+                vmax=1,
+                cbar=step == 0,
+                annot_kws={"fontsize": 4},
+            )
 
+            # Update the agent
+            agent.update_belief(np.array([[query_x, query_y]]), label)
+
+            # Log metrics
             print(f"Step: {step}")
             print(
                 "Cosine Distance: ",
                 f"Optimized: {cosine_distance}",
             )
             print(df["label"].value_counts())
-            plt.legend(bbox_to_anchor=(1.05, 1), loc=2)
+
             plt.pause(0.00001)
             plt.draw()
         plt.close("all")
