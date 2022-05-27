@@ -42,12 +42,7 @@ def acquisition_function_bounded_hessian(
     utility = []
     H_inv = reward_model.hessian_bound_inv
     for x in candidate_queries:
-        # TO REFACTOR
-        # H_inv, _ = reward_model.increment_inv_hessian_bound(x)
-        # utility.append(-np.linalg.det(H_inv))
-        # x = x / np.linalg.norm(x)
         utility.append((x @ H_inv @ x.T).item())
-
     argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
     if return_utility:
         return candidate_queries[np.random.choice(argmax)], utility
@@ -114,7 +109,6 @@ def acquisition_function_bounded_hessian_policy(
     utility = []
     H_inv = reward_model.hessian_bound_inv
     for x in candidate_queries:
-        # H_inv, _ = reward_model.increment_inv_hessian_bound(x)
         part_1 = ((policy.v.T @ H_inv @ x.T).item()) ** 2
         part_2 = 1 + reward_model.kappa * (x @ H_inv @ x.T).item()
         utility.append(part_1 / part_2)
@@ -178,7 +172,6 @@ def acquisition_function_map_convex_bound(
             val = reward_model.increment_neglog_posterior(theta_map, x, y)
             H = reward_model.increment_neglog_posterior_hessian_upperbound(x)
             # val += (1 / 2 * theta_map.T @ H @ theta_map).item()
-
             def _get_min_H_nrom() -> float:
                 (
                     constraints,
@@ -190,7 +183,6 @@ def acquisition_function_map_convex_bound(
                 return problem.value
 
             # val += _get_min_H_nrom()
-
             utility_y.append(-val)
         utility.append(min(utility_y))
 

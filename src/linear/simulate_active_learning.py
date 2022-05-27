@@ -52,8 +52,8 @@ THETA_UPPER = 1
 THETA_LOWER = -1
 X_LOWER = -1
 X_UPPER = 1
-GRID_RES = 50j
-PRIOR_VARIANCE_SCALE = 100
+GRID_RES = 30j
+PRIOR_VARIANCE_SCALE = 1
 ALGORITHM = "bounded_hessian"
 
 
@@ -81,14 +81,14 @@ class Expert:
         ), "Mismatch between states and parameters dimensions"
         x_delta = x_1 - x_2
         p = expit(x_delta @ self.true_parameter).item()
-        query = numpy.random.choice([1, 0], p=[p, 1 - p])
-
-        return query
+        feedback = numpy.random.choice([1, 0], p=[p, 1 - p])
+        return feedback
 
     def query_diff_comparison(self, x_delta: np.ndarray) -> int:
         p = expit(x_delta @ self.true_parameter).item()
-        query = np.random.choice([1, 0], p=[p, 1 - p])
-        return query
+        print(f"Probability of 1: {p}")
+        feedback = np.random.choice([1, 0], p=[p, 1 - p])
+        return feedback
 
     def query_single_absolute_value(self, x: np.ndarray) -> float:
         assert (
@@ -166,11 +166,6 @@ class Agent:
         Returns:
             Tuple[np.ndarray, np.ndarray]: _description_
         """
-        # candidate_queries = [
-        #     sample_random_ball(self.state_space_dim, radius=1)
-        #     - sample_random_ball(self.state_space_dim, radius=1)
-        #     for _ in range(query_counts)
-        # ]
         candidate_queries = get_grid_points(
             x_min=X_LOWER, x_max=X_UPPER, n_points=GRID_RES
         )
@@ -218,7 +213,6 @@ class Agent:
             raise NotImplementedError()
 
         y = self.expert.query_diff_comparison(query_best)
-        # self.update_belief(query_best, y)
         self.counter += 1
         if return_utility:
             candidate_queries = [x.tobytes() for x in candidate_queries]
@@ -305,7 +299,7 @@ def simultate(
                 dict(zip(["x", "y", "label"], [queries_x, queries_y, labels]))
             )
 
-            # Query viz
+            # # Query viz
             axs[1, 0].clear()
             sns.scatterplot(
                 data=df,
@@ -348,7 +342,7 @@ def simultate(
             axs[1, 0].set_ylim(X_LOWER - 0.05, X_UPPER + 0.05)
             axs[1, 0].set_xlim(X_LOWER - 0.05, X_UPPER + 0.05)
 
-            # Heatmap Viz
+            # # Heatmap Viz
             axs[2, 0].clear()
             heatmap = from_utility_dict_to_heatmap(utility)
             sns.heatmap(
