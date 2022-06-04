@@ -134,18 +134,33 @@ class LinearLogisticRewardModel(LogisticRewardModel):
         ).item()
         return neg_logprior + neg_loglikelihood
 
+    def get_likelihood(self, x: np.ndarray, y: int, theta: np.ndarray) -> float:
+        """Returns the likelihood of observing (x,y) under the given theta.
+
+        Args:
+            x (np.ndarray): The observed covariate
+            y (int): The observed binary feedback.
+            theta (np.ndarray): The paraemeter value.
+
+        Returns:
+            float: The likelihood value.
+        """
+        y_hat = expit(x @ theta)
+        likelihood = y_hat if y == 1 else 1 - y_hat
+        return likelihood
+
     def increment_neglog_posterior(
         self,
         theta: np.ndarray,
         x: np.ndarray,
         y: np.ndarray,
     ) -> float:
-        """Returns the negative log posterior excluding the normalization factor.
+        """Returns the negative log posterior incremented by x excluding the normalization factor.
 
         Args:
             theta (np.ndarray): The parameter vector.
-            y (np.ndarray): The observed binary values.
-            X (np.ndarray): The observed covariates.
+            x (np.ndarray): The covariate to add to the dataset.
+            y (np.ndarray): The observed binary value.
 
         Returns:
             float: The negative log posterior excluding the normalization factor.
@@ -190,6 +205,36 @@ class LinearLogisticRewardModel(LogisticRewardModel):
         H = X.T @ D @ X + self.prior_covariance
         return H
 
+    def neglog_posterior_bounded_hessian(
+        self, X: np.ndarray, kappa: float
+    ) -> np.ndarray:
+        """Returns a bound on the hessian.
+
+        Args:
+            X (np.ndarray): The input covariates.
+            kappa (float): The scaler replacing the sigmoids second derivatives.
+
+        Returns:
+            np.ndarray: The bounded hessian.
+        """
+        H = X.T @ X * kappa + self.prior_covariance
+        return H
+
+    def neglog_posterior_bounded_coordinate_hessian(
+        self, X: np.ndarray, kappas: list
+    ) -> np.ndarray:
+        """_summary_
+
+        Args:
+            X (np.ndarray): _description_
+            kappas (list): _description_
+
+        Returns:
+            np.ndarray: _description_
+        """
+        H = X.T @ np.diag(kappas) @ X + self.prior_covariance
+        return H
+
     def increment_neglog_posterior_hessian(self, theta, x: np.ndarray) -> np.ndarray:
         """Returns the hessian of the negative log posterior.
 
@@ -226,41 +271,6 @@ class LinearLogisticRewardModel(LogisticRewardModel):
         H = kappa * X.T @ X + self.prior_covariance
         return H
 
-    def neglog_posterior_hessian_upperbound(
-        self, theta: np.ndarray, X: np.ndarray = None
-    ) -> np.ndarray:
-        """Returns the hessian of the negative log posterior.
-
-        Args:
-            theta (np.ndarray): The parameter vector to compute the hessian at.
-            X (np.ndarray, optional): The observed covariates. Defaults to None.
-
-        Returns:
-            np.ndarray: The hessian at a specific theta given X.
-        """
-        if X is None:
-            X = np.array(self.X)
-        H = 0.25 * X.T @ X + self.prior_covariance
-        return H
-
-    def increment_neglog_posterior_hessian_upperbound(
-        self, x: np.ndarray
-    ) -> np.ndarray:
-        """Returns the hessian of the negative log posterior.
-
-        Args:
-            theta (np.ndarray): The parameter vector to compute the hessian at.
-            X (np.ndarray, optional): The observed covariates. Defaults to None.
-
-        Returns:
-            np.ndarray: The hessian at a specific theta given X.
-        """
-        X = copy.deepcopy(self.X)
-        X.append(x)
-        X = np.concatenate(X)
-        H = 0.25 * X.T @ X + self.prior_covariance
-        return H
-
     def neglog_posterior_hessian_increment(
         self, theta: np.ndarray, x: np.ndarray = None
     ) -> np.ndarray:
@@ -277,21 +287,6 @@ class LinearLogisticRewardModel(LogisticRewardModel):
         X.append(x)
         X = np.concatenate(X)
         return self.neglog_posterior_hessian(theta, X)
-
-    def get_likelihood(self, x: np.ndarray, y: int, theta: np.ndarray) -> float:
-        """Returns the likelihood of observing (x,y) under the given theta.
-
-        Args:
-            x (np.ndarray): The observed covariate
-            y (int): The observed binary feedback.
-            theta (np.ndarray): The paraemeter value.
-
-        Returns:
-            float: The likelihood value.
-        """
-        y_hat = expit(x @ theta)
-        likelihood = y_hat if y == 1 else 1 - y_hat
-        return likelihood
 
     def sample_current_approximate_distribution(
         self, n_samples=1, approximation: str = "laplace"
@@ -341,37 +336,13 @@ class LinearLogisticRewardModel(LogisticRewardModel):
             raise NotImplementedError()
         return p_1, p_0
 
-    def neglog_posterior_bounded_hessian(
-        self, X: np.ndarray, kappa: float
-    ) -> np.ndarray:
-        """Returns a bound on the hessian.
-
-        Args:
-            X (np.ndarray): The input covariates.
-            kappa (float): The scaler replacing the sigmoids second derivatives.
-
-        Returns:
-            np.ndarray: The bounded hessian.
-        """
-        H = X.T @ X * kappa + self.prior_covariance
-        return H
-
-    def neglog_posterior_bounded_coordinate_hessian(
-        self, X: np.ndarray, kappas: list
-    ) -> np.ndarray:
-        """_summary_
-
-        Args:
-            X (np.ndarray): _description_
-            kappas (list): _description_
-
-        Returns:
-            np.ndarray: _description_
-        """
-        H = X.T @ np.diag(kappas) @ X + self.prior_covariance
-        return H
-
     def update(self, x: np.ndarray, y: np.ndarray) -> None:
+        """Updates the reward model after a new observation (x,y)
+
+        Args:
+            x (np.ndarray): The observed covariate.
+            y (np.ndarray): The observed response.
+        """
         self.update_inv_hessian_bound(x)
         self.update_inv_hessian_coordinate_bound(x)
         self.update_approximate_posterior(x, y)
@@ -391,7 +362,6 @@ class LinearLogisticRewardModel(LogisticRewardModel):
 
     def update_inv_hessian_bound(self, x: np.ndarray) -> None:
         self.hessian_bound_inv, self.kappa = self.increment_inv_hessian_bound(x)
-        print(f"kappa: {self.kappa}")
 
     def update_inv_hessian_coordinate_bound(self, x: np.ndarray) -> None:
         (
@@ -401,9 +371,9 @@ class LinearLogisticRewardModel(LogisticRewardModel):
 
     def increment_inv_hessian_bound(self, x: np.ndarray) -> Tuple[np.ndarray, float]:
         if self.kappa is None:
-            kappa = self.compute_hessian_bound(x)
+            kappa = self.compute_uniform_kappa(x)
         else:
-            kappa_i = self.compute_hessian_bound(x)
+            kappa_i = self.compute_uniform_kappa(x)
             if kappa_i < self.kappa:
                 kappa = kappa_i
             else:
@@ -417,7 +387,7 @@ class LinearLogisticRewardModel(LogisticRewardModel):
     def increment_inv_hessian_coordinate_bound(
         self, x: np.ndarray
     ) -> Tuple[np.ndarray, float]:
-        kappa_i = self.compute_hessian_bound(x)
+        kappa_i = self.compute_uniform_kappa(x)
         kappas = copy.deepcopy(self.kappas)
         kappas.append(kappa_i)
         X = copy.deepcopy(self.X)
@@ -428,7 +398,9 @@ class LinearLogisticRewardModel(LogisticRewardModel):
         )
         return H_inv, kappas
 
-    def compute_hessian_bound(self, X: np.ndarray) -> float:
+    def compute_uniform_kappa(
+        self, X: np.ndarray, return_kappa_list: bool = False
+    ) -> float:
         constraints, theta = self.param_constraint.get_cvxpy_constraint()
 
         def _get_kappa(x) -> float:
@@ -439,14 +411,52 @@ class LinearLogisticRewardModel(LogisticRewardModel):
             return kappa[0][0]
 
         kappa = np.Inf
+        kappas = []
         if X.shape == (1, self.dim):
             kappa = _get_kappa(X)
         else:
             for x in X:
                 kappa_i = _get_kappa(x)
+                if return_kappa_list:
+                    kappas.append(kappa_i)
                 if kappa_i < kappa:
                     kappa = kappa_i
-        return kappa
+        if return_kappa_list:
+            return kappas
+        else:
+            return kappa
+
+    def compute_set_kappa(
+        self, X: np.ndarray, constraint: Constraint, return_kappa_list: bool = False
+    ) -> float:
+        constraints, theta = constraint.get_cvxpy_constraint()
+        _x = cp.Parameter((1, self.dim))
+        objective = cp.Maximize(_x @ theta)
+        problem = cp.Problem(objective, constraints)
+
+        def _get_kappa(x) -> float:
+            _x.value = x
+            problem.solve()
+            kappa = expit(x @ theta.value) * (1 - expit(x @ theta.value))
+            return kappa.item()
+
+        kappa = np.Inf
+        kappas = []
+        if X.shape == (1, self.dim):
+            kappa = _get_kappa(X)
+            kappas.append(kappa)
+        else:
+            for i in range(len(X)):
+                x = np.expand_dims(X[i, :], axis=0)
+                kappa_i = _get_kappa(x)
+                if return_kappa_list:
+                    kappas.append(kappa_i)
+                if kappa_i < kappa:
+                    kappa = kappa_i
+        if return_kappa_list:
+            return kappas
+        else:
+            return kappa
 
     def get_parameters_estimate(self):
         return self.approximate_posterior.get_mean()
@@ -456,6 +466,9 @@ class LinearLogisticRewardModel(LogisticRewardModel):
 
     def get_parameters_moments(self):
         return self.get_parameters_estimate(), self.get_parameters_covariance()
+
+    def get_dataset(self):
+        return copy.deepcopy(self.X), copy.deepcopy(self.y)
 
     def get_simulated_update(
         self, x: np.ndarray, y: int

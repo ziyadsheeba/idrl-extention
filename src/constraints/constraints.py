@@ -31,21 +31,23 @@ class AffineConstraint(Constraint):
 
 
 class EllipticalConstraint(Constraint):
-    def __init__(self, A: np.ndarray, b: float):
-        """Defines a constraint of the form x.T@A@x <= b.
+    def __init__(self, A: np.ndarray, q: np.ndarray, b: float):
+        """Defines a constraint of the form x.T@A@x + q@x <= b.
 
         Args:
             A (np.ndarray): Potential matrix.
+            q (np.ndarray): Inner product vector.
             b (float): Level-set.
         """
         assert A.shape[0] == A.shape[1]
         self.A = A
         self.b = b
+        self.q = q
         self.dim = A.shape[0]
 
     def get_cvxpy_constraint(self) -> Tuple[cp.Variable, List]:
         x = cp.Variable((self.dim, 1))
-        constraints = [cp.quad_form(x, A) <= b]
+        constraints = [cp.quad_form(x, self.A) + self.q @ x <= self.b]
         return constraints, x
 
 

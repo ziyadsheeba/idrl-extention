@@ -22,12 +22,11 @@ from src.aquisition_functions.aquisition_functions import (
     acquisition_function_bounded_hessian,
     acquisition_function_bounded_hessian_trace,
     acquisition_function_expected_hessian,
-    acquisition_function_map_confidence,
-    acquisition_function_map_convex_bound,
     acquisition_function_map_hessian,
     acquisition_function_map_hessian_trace,
     acquisition_function_optimal_hessian,
     acquisition_function_random,
+    acquisition_function_map_confidence,
 )
 from src.constants import EXPERIMENTS_PATH
 from src.constraints.constraints import SimpleConstraint
@@ -49,12 +48,12 @@ plt.style.use("ggplot")
 
 DIMENSIONALITY = 2
 STATE_SUPPORT_SIZE = 1000
-THETA_UPPER = 1
-THETA_LOWER = -1
+THETA_UPPER = 2
+THETA_LOWER = -2
 X_LOWER = -1
 X_UPPER = 1
-GRID_RES = 30j
-PRIOR_VARIANCE_SCALE = 10
+GRID_RES = 50j
+PRIOR_VARIANCE_SCALE = 1
 ALGORITHM = "map_confidence"
 
 
@@ -235,7 +234,7 @@ def simultate(
     num_experiments: int = typer.Option(...), simulation_steps: int = typer.Option(...)
 ):
 
-    seeds = [np.random.randint(0, 100000) for _ in range(num_experiments)]
+    seeds = [np.random.randint(0, 2**32) for _ in range(num_experiments)]
     results = {}
     for seed in seeds:
         np.random.seed(seed)

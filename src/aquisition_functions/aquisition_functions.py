@@ -4,6 +4,7 @@ import cvxpy as cp
 import numpy as np
 from scipy.special import expit
 
+from src.constraints.constraints import EllipticalConstraint
 from src.policies.basic_policy import Policy
 from src.reward_models.logistic_reward_models import (
     LinearLogisticRewardModel,
@@ -86,18 +87,33 @@ def acquisition_function_optimal_hessian(
 def acquisition_function_map_confidence(
     reward_model: LinearLogisticRewardModel,
     candidate_queries: List[np.array],
-    alpha: float = 0.00001,
+    alpha: float = 0.7,
     return_utility: bool = True,
 ) -> Union[np.ndarray, Tuple[np.ndarray, List]]:
     utility = []
     mean, covariance = reward_model.get_parameters_moments()
-    levelset = -2 * np.log(alpha)
-    P = matrix_inverse(covariance) * levelset
-    H_inv = reward_model.hessian_bound_inv
+    levelset = -2 * np.log(1 - alpha)
+    P = covariance * levelset
+    X, _ = reward_model.get_dataset()
+    kappas = []
+
+    for x in X:
+        theta_i = P @ x.T / np.sqrt(x @ P @ x.T).item() + mean
+        kappa_i = (expit(x @ theta_i) * (1 - expit(x @ theta_i))).item()
+        kappas.append(kappa_i)
+
     for x in candidate_queries:
-        theta_star = P @ x.T / (np.sqrt(x @ P @ x.T)) + mean
-        kappa = (expit(x @ theta_star) * (1 - expit(x @ theta_star))).item()
-        utility.append((kappa * x @ H_inv @ x.T).item())
+        theta_i = P @ x.T / np.sqrt(x @ P @ x.T) + mean
+        kappa_i = (expit(x @ theta_i) * (1 - expit(x @ theta_i))).item()
+        kappas.append(kappa_i)
+        X.append(x)
+        H = reward_model.neglog_posterior_bounded_coordinate_hessian(
+            np.concatenate(X), kappas
+        )
+        utility.append(-1 / np.linalg.det(H).item())
+        kappas.pop()
+        X.pop()
+
     argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
     if return_utility:
         return candidate_queries[np.random.choice(argmax)], utility
@@ -247,55 +263,6 @@ def acquisition_function_map_hessian_trace(
         utility.append(min(utility_y))
 
     argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
-    if return_utility:
-        return candidate_queries[np.random.choice(argmax)], utility
-    else:
-        return candidate_queries[np.random.choice(argmax)]
-
-
-def acquisition_function_map_convex_bound(
-    reward_model: LinearLogisticRewardModel,
-    candidate_queries: List[np.array],
-    return_utility: bool = True,
-) -> Union[np.ndarray, Tuple[np.ndarray, List]]:
-    """_summary_
-
-    Args:
-        reward_model (LinearLogisticRewardModel): _description_
-        candidate_queries (List[np.array]): _description_
-        return_utility (bool, optional): _description_. Defaults to True.
-
-    Returns:
-        Union[np.ndarray, Tuple[np.ndarray, List]: _description_
-    """
-    utility = []
-    for x in candidate_queries:
-        utility_y = []
-        for y in [1, 0]:
-            theta_map, _ = reward_model.get_simulated_update(x, y)
-            val = reward_model.increment_neglog_posterior(theta_map, x, y)
-            H = reward_model.increment_neglog_posterior_hessian_upperbound(x)
-            # val += (1 / 2 * theta_map.T @ H @ theta_map).item()
-            def _get_min_H_nrom() -> float:
-                (
-                    constraints,
-                    theta,
-                ) = reward_model.param_constraint.get_cvxpy_constraint()
-                objective = cp.Minimize((theta_map.T @ H) @ theta)
-                problem = cp.Problem(objective, constraints)
-                problem.solve()
-                return problem.value
-
-            # val += _get_min_H_nrom()
-            utility_y.append(-val)
-        utility.append(min(utility_y))
-
-    argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
-    print("len: ", len(argmax))
-    if len(argmax) > 1:
-        for x in argmax:
-            if not np.any(x):
-                argmax.remove(x)
     if return_utility:
         return candidate_queries[np.random.choice(argmax)], utility
     else:
