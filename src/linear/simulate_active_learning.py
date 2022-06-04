@@ -22,6 +22,7 @@ from src.aquisition_functions.aquisition_functions import (
     acquisition_function_bounded_hessian,
     acquisition_function_bounded_hessian_trace,
     acquisition_function_expected_hessian,
+    acquisition_function_map_confidence,
     acquisition_function_map_convex_bound,
     acquisition_function_map_hessian,
     acquisition_function_map_hessian_trace,
@@ -53,8 +54,8 @@ THETA_LOWER = -1
 X_LOWER = -1
 X_UPPER = 1
 GRID_RES = 30j
-PRIOR_VARIANCE_SCALE = 1
-ALGORITHM = "bounded_hessian"
+PRIOR_VARIANCE_SCALE = 10
+ALGORITHM = "map_confidence"
 
 
 class Expert:
@@ -209,6 +210,10 @@ class Agent:
             query_best, utility = acquisition_function_map_hessian_trace(
                 self.reward_model, candidate_queries
             )
+        elif algorithm == "map_confidence":
+            query_best, utility = acquisition_function_map_confidence(
+                self.reward_model, candidate_queries
+            )
         else:
             raise NotImplementedError()
 
@@ -299,7 +304,7 @@ def simultate(
                 dict(zip(["x", "y", "label"], [queries_x, queries_y, labels]))
             )
 
-            # # Query viz
+            # Query viz
             axs[1, 0].clear()
             sns.scatterplot(
                 data=df,
@@ -342,7 +347,7 @@ def simultate(
             axs[1, 0].set_ylim(X_LOWER - 0.05, X_UPPER + 0.05)
             axs[1, 0].set_xlim(X_LOWER - 0.05, X_UPPER + 0.05)
 
-            # # Heatmap Viz
+            # Heatmap Viz
             axs[2, 0].clear()
             heatmap = from_utility_dict_to_heatmap(utility)
             sns.heatmap(

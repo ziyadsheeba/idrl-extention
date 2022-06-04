@@ -208,6 +208,24 @@ class LinearLogisticRewardModel(LogisticRewardModel):
         H = X.T @ D @ X + self.prior_covariance
         return H
 
+    def increment_neglog_posterior_hessian_bound(
+        self, x: np.ndarray, kappa: float
+    ) -> np.ndarray:
+        """Returns the hessian of the negative log posterior.
+
+        Args:
+            theta (np.ndarray): The parameter vector to compute the hessian at.
+            X (np.ndarray, optional): The observed covariates. Defaults to None.
+
+        Returns:
+            np.ndarray: The hessian at a specific theta given X.
+        """
+        X = copy.deepcopy(self.X)
+        X.append(x)
+        X = np.concatenate(X)
+        H = kappa * X.T @ X + self.prior_covariance
+        return H
+
     def neglog_posterior_hessian_upperbound(
         self, theta: np.ndarray, X: np.ndarray = None
     ) -> np.ndarray:
@@ -432,6 +450,12 @@ class LinearLogisticRewardModel(LogisticRewardModel):
 
     def get_parameters_estimate(self):
         return self.approximate_posterior.get_mean()
+
+    def get_parameters_covariance(self):
+        return self.approximate_posterior.get_covariance()
+
+    def get_parameters_moments(self):
+        return self.get_parameters_estimate(), self.get_parameters_covariance()
 
     def get_simulated_update(
         self, x: np.ndarray, y: int

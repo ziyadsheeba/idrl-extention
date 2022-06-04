@@ -1,10 +1,14 @@
-from typing import List
+from typing import List, Tuple, Union
 
 import cvxpy as cp
 import numpy as np
+from scipy.special import expit
 
 from src.policies.basic_policy import Policy
-from src.reward_models.logistic_reward_models import LogisticRewardModel
+from src.reward_models.logistic_reward_models import (
+    LinearLogisticRewardModel,
+    LogisticRewardModel,
+)
 from src.utils import (
     argmax_over_index_set,
     bernoulli_entropy,
@@ -17,16 +21,7 @@ def acquisition_function_random(
     reward_model: LogisticRewardModel,
     candidate_queries: List[np.array],
     return_utility: bool = True,
-) -> np.ndarray:
-    """_summary_
-
-    Args:
-        reward_model (LogisticRewardModel): The reward model.
-        candidate_queries (List): A list of
-
-    Returns:
-        np.ndarray: The chosen query.
-    """
+) -> Union[np.ndarray, Tuple[np.ndarray, List]]:
     if return_utility:
         utility = [0] * len(candidate_queries)
         return candidate_queries[np.random.randint(0, len(candidate_queries))], utility
@@ -35,10 +30,21 @@ def acquisition_function_random(
 
 
 def acquisition_function_bounded_hessian(
-    reward_model: LogisticRewardModel,
+    reward_model: LinearLogisticRewardModel,
     candidate_queries: List[np.array],
     return_utility: bool = True,
-) -> np.ndarray:
+) -> Union[np.ndarray, Tuple[np.ndarray, List]]:
+    """Randomly picks a query.
+
+    Args:
+        reward_model (LinearLogisticRewardModel): The reward model
+        candidate_queries (List[np.array]): The candidate queries.
+        return_utility (bool, optional): If the utility for each query should be returned. Defaults to True.
+
+    Returns:
+        Union[np.ndarray, Tuple[np.ndarray, List]: Optimal query or (optimal query, utility).
+    """
+
     utility = []
     H_inv = reward_model.hessian_bound_inv
     for x in candidate_queries:
@@ -51,11 +57,21 @@ def acquisition_function_bounded_hessian(
 
 
 def acquisition_function_optimal_hessian(
-    reward_model: LogisticRewardModel,
+    reward_model: LinearLogisticRewardModel,
     candidate_queries: List[np.array],
     theta: np.ndarray,
     return_utility: bool = True,
-) -> np.ndarray:
+) -> Union[np.ndarray, Tuple[np.ndarray, List]]:
+    """Picks the query that minimizes determinant of the hessian inverse an the true parameter.
+
+    Args:
+        reward_model (LinearLogisticRewardModel): The reward model
+        candidate_queries (List[np.array]): The candidate queries.
+        return_utility (bool, optional): If the utility for each query should be returned. Defaults to True.
+
+    Returns:
+        Union[np.ndarray, Tuple[np.ndarray, List]: Optimal query or (optimal query, utility).
+    """
     utility = []
     for x in candidate_queries:
         H = reward_model.increment_neglog_posterior_hessian(theta, x)
@@ -67,16 +83,53 @@ def acquisition_function_optimal_hessian(
         return candidate_queries[np.random.choice(argmax)]
 
 
+def acquisition_function_map_confidence(
+    reward_model: LinearLogisticRewardModel,
+    candidate_queries: List[np.array],
+    alpha: float = 0.00001,
+    return_utility: bool = True,
+) -> Union[np.ndarray, Tuple[np.ndarray, List]]:
+    utility = []
+    mean, covariance = reward_model.get_parameters_moments()
+    levelset = -2 * np.log(alpha)
+    P = matrix_inverse(covariance) * levelset
+    H_inv = reward_model.hessian_bound_inv
+    for x in candidate_queries:
+        theta_star = P @ x.T / (np.sqrt(x @ P @ x.T)) + mean
+        kappa = (expit(x @ theta_star) * (1 - expit(x @ theta_star))).item()
+        utility.append((kappa * x @ H_inv @ x.T).item())
+    argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
+    if return_utility:
+        return candidate_queries[np.random.choice(argmax)], utility
+    else:
+        return candidate_queries[np.random.choice(argmax)]
+
+
 def acquisition_function_bounded_hessian_trace(
-    reward_model: LogisticRewardModel,
+    reward_model: LinearLogisticRewardModel,
     candidate_queries: List[np.array],
     return_utility: bool = True,
-) -> np.ndarray:
+) -> Union[np.ndarray, Tuple[np.ndarray, List]]:
+    """Picks the query that minimizes trace of the bounded hessian inverse.
+
+    Args:
+        reward_model (LinearLogisticRewardModel): The reward model
+        candidate_queries (List[np.array]): The candidate queries.
+        return_utility (bool, optional): If the utility for each query should be returned. Defaults to True.
+
+    Returns:
+        Union[np.ndarray, Tuple[np.ndarray, List]: Optimal query or (optimal query, utility).
+    """
     utility = []
+    H_inv = reward_model.hessian_bound_inv
+    print("trace: ", np.trace(reward_model.hessian_bound_inv))
     for x in candidate_queries:
-        # TO REFACTOR
-        H_inv, _ = reward_model.increment_inv_hessian_bound(x)
-        utility.append(-np.trace(H_inv))
+        if reward_model.kappa is None:
+            kappa = 0.25
+        else:
+            kappa = reward_model.kappa
+        val = np.linalg.norm(H_inv @ x.T) ** 2 / (1 + kappa * x @ H_inv @ x.T)
+        utility.append(val.item())
     argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
     if return_utility:
         return candidate_queries[np.random.choice(argmax)], utility
@@ -85,10 +138,20 @@ def acquisition_function_bounded_hessian_trace(
 
 
 def acquisition_function_bounded_coordinate_hessian(
-    reward_model: LogisticRewardModel,
+    reward_model: LinearLogisticRewardModel,
     candidate_queries: List[np.array],
     return_utility: bool = True,
-) -> np.ndarray:
+) -> Union[np.ndarray, Tuple[np.ndarray, List]]:
+    """Picks the query that minimizes determinant of the bounded hessian inverse.
+
+    Args:
+        reward_model (LinearLogisticRewardModel): The reward model
+        candidate_queries (List[np.array]): The candidate queries.
+        return_utility (bool, optional): If the utility for each query should be returned. Defaults to True.
+
+    Returns:
+        Union[np.ndarray, Tuple[np.ndarray, List]: Optimal query or (optimal query, utility).
+    """
     utility = []
     for x in candidate_queries:
         H_inv, _ = reward_model.increment_inv_hessian_coordinate_bound(x)
@@ -101,11 +164,22 @@ def acquisition_function_bounded_coordinate_hessian(
 
 
 def acquisition_function_bounded_hessian_policy(
-    reward_model: LogisticRewardModel,
+    reward_model: LinearLogisticRewardModel,
     policy: Policy,
     candidate_queries: List[np.array],
     return_utility: bool = True,
-) -> np.ndarray:
+) -> Union[np.ndarray, Tuple[np.ndarray, List]]:
+    """_summary_
+
+    Args:
+        reward_model (LinearLogisticRewardModel): _description_
+        policy (Policy): _description_
+        candidate_queries (List[np.array]): _description_
+        return_utility (bool, optional): _description_. Defaults to True.
+
+    Returns:
+        Union[np.ndarray, Tuple[np.ndarray, List]: _description_
+    """
     utility = []
     H_inv = reward_model.hessian_bound_inv
     for x in candidate_queries:
@@ -120,10 +194,20 @@ def acquisition_function_bounded_hessian_policy(
 
 
 def acquisition_function_map_hessian(
-    reward_model: LogisticRewardModel,
+    reward_model: LinearLogisticRewardModel,
     candidate_queries: List[np.array],
     return_utility: bool = True,
-) -> np.ndarray:
+) -> Union[np.ndarray, Tuple[np.ndarray, List]]:
+    """_summary_
+
+    Args:
+        reward_model (LinearLogisticRewardModel): _description_
+        candidate_queries (List[np.array]): _description_
+        return_utility (bool, optional): _description_. Defaults to True.
+
+    Returns:
+        Union[np.ndarray, Tuple[np.ndarray, List]: _description_
+    """
     utility = []
     for x in candidate_queries:
         utility_y = []
@@ -140,10 +224,20 @@ def acquisition_function_map_hessian(
 
 
 def acquisition_function_map_hessian_trace(
-    reward_model: LogisticRewardModel,
+    reward_model: LinearLogisticRewardModel,
     candidate_queries: List[np.array],
     return_utility: bool = True,
-) -> np.ndarray:
+) -> Union[np.ndarray, Tuple[np.ndarray, List]]:
+    """_summary_
+
+    Args:
+        reward_model (LinearLogisticRewardModel): _description_
+        candidate_queries (List[np.array]): _description_
+        return_utility (bool, optional): _description_. Defaults to True.
+
+    Returns:
+        Union[np.ndarray, Tuple[np.ndarray, List]: _description_
+    """
     utility = []
     for x in candidate_queries:
         utility_y = []
@@ -160,10 +254,20 @@ def acquisition_function_map_hessian_trace(
 
 
 def acquisition_function_map_convex_bound(
-    reward_model: LogisticRewardModel,
+    reward_model: LinearLogisticRewardModel,
     candidate_queries: List[np.array],
     return_utility: bool = True,
-) -> np.ndarray:
+) -> Union[np.ndarray, Tuple[np.ndarray, List]]:
+    """_summary_
+
+    Args:
+        reward_model (LinearLogisticRewardModel): _description_
+        candidate_queries (List[np.array]): _description_
+        return_utility (bool, optional): _description_. Defaults to True.
+
+    Returns:
+        Union[np.ndarray, Tuple[np.ndarray, List]: _description_
+    """
     utility = []
     for x in candidate_queries:
         utility_y = []
@@ -199,11 +303,22 @@ def acquisition_function_map_convex_bound(
 
 
 def acquisition_function_map_hessian_policy(
-    reward_model: LogisticRewardModel,
+    reward_model: LinearLogisticRewardModel,
     policy: Policy,
     candidate_queries: List[np.array],
     return_utility: bool = True,
-) -> np.ndarray:
+) -> Union[np.ndarray, Tuple[np.ndarray, List]]:
+    """_summary_
+
+    Args:
+        reward_model (LinearLogisticRewardModel): _description_
+        policy (Policy): _description_
+        candidate_queries (List[np.array]): _description_
+        return_utility (bool, optional): _description_. Defaults to True.
+
+    Returns:
+        Union[np.ndarray, Tuple[np.ndarray, List]: _description_
+    """
     utility = []
     utility = []
     for x in candidate_queries:
@@ -221,11 +336,22 @@ def acquisition_function_map_hessian_policy(
 
 
 def acquisition_function_expected_hessian(
-    reward_model: LogisticRewardModel,
+    reward_model: LinearLogisticRewardModel,
     candidate_queries: List[np.array],
     n_samples: int = 10,
     return_utility: bool = True,
-) -> np.ndarray:
+) -> Union[np.ndarray, Tuple[np.ndarray, List]]:
+    """_summary_
+
+    Args:
+        reward_model (LinearLogisticRewardModel): _description_
+        candidate_queries (List[np.array]): _description_
+        n_samples (int, optional): _description_. Defaults to 10.
+        return_utility (bool, optional): _description_. Defaults to True.
+
+    Returns:
+        Union[np.ndarray, Tuple[np.ndarray, List]: _description_
+    """
     utility = []
     for x in candidate_queries:
         label_utility = {}
@@ -249,11 +375,22 @@ def acquisition_function_expected_hessian(
 
 
 def acquisition_function_bald(
-    reward_model: LogisticRewardModel,
+    reward_model: LinearLogisticRewardModel,
     candidate_queries: List[np.array],
     n_samples: int = 50,
     return_utility: bool = True,
-) -> np.ndarray:
+) -> Union[np.ndarray, Tuple[np.ndarray, List]]:
+    """_summary_
+
+    Args:
+        reward_model (LinearLogisticRewardModel): _description_
+        candidate_queries (List[np.array]): _description_
+        n_samples (int, optional): _description_. Defaults to 50.
+        return_utility (bool, optional): _description_. Defaults to True.
+
+    Returns:
+        Union[np.ndarray, Tuple[np.ndarray, List]: _description_
+    """
     utility = []
     for x in candidate_queries:
         p_1, _ = reward_model.get_approximate_predictive_distribution(
