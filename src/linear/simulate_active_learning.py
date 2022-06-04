@@ -22,11 +22,11 @@ from src.aquisition_functions.aquisition_functions import (
     acquisition_function_bounded_hessian,
     acquisition_function_bounded_hessian_trace,
     acquisition_function_expected_hessian,
+    acquisition_function_map_confidence,
     acquisition_function_map_hessian,
     acquisition_function_map_hessian_trace,
     acquisition_function_optimal_hessian,
     acquisition_function_random,
-    acquisition_function_map_confidence,
 )
 from src.constants import EXPERIMENTS_PATH
 from src.constraints.constraints import SimpleConstraint

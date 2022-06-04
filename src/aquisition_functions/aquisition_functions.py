@@ -237,6 +237,7 @@ def acquisition_function_map_hessian_trace(
     else:
         return candidate_queries[np.random.choice(argmax)]
 
+
 def acquisition_function_expected_hessian(
     reward_model: LinearLogisticRewardModel,
     candidate_queries: List[np.array],
