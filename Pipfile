@@ -1,0 +1,31 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+black = "*"
+isort = "*"
+scipy = "*"
+tqdm = "*"
+joblib = "*"
+matplotlib = "*"
+numpy = "*"
+pyqt5 = "*"
+typer = "*"
+gym = "*"
+cvxopt = "*"
+networkx = "*"
+seaborn = "*"
+wrapt = "*"
+pygame = "*"
+tk-tools = "*"
+notebook = "*"
+opencv-python-headless = "*"
+cvxpy = "*"
+pandas = "*"
+
+[dev-packages]
+
+[requires]
+python_version = "3.8"
