@@ -86,7 +86,7 @@ def acquisition_function_optimal_hessian(
 def acquisition_function_map_confidence(
     reward_model: LinearLogisticRewardModel,
     candidate_queries: List[np.array],
-    alpha: float = 0.7,
+    alpha: float = 0.1,
     return_utility: bool = True,
 ) -> Union[np.ndarray, Tuple[np.ndarray, List]]:
     utility = []
@@ -95,21 +95,20 @@ def acquisition_function_map_confidence(
     P = covariance * levelset
     X, _ = reward_model.get_dataset()
     kappas = []
-
+    print(P)
     for x in X:
         theta_i = P @ x.T / np.sqrt(x @ P @ x.T).item() + mean
         kappa_i = (expit(x @ theta_i) * (1 - expit(x @ theta_i))).item()
         kappas.append(kappa_i)
-
     for x in candidate_queries:
-        theta_i = P @ x.T / np.sqrt(x @ P @ x.T) + mean
+        theta_i = P @ x.T / np.sqrt(x @ P @ x.T).item() + mean
         kappa_i = (expit(x @ theta_i) * (1 - expit(x @ theta_i))).item()
         kappas.append(kappa_i)
         X.append(x)
         H = reward_model.neglog_posterior_bounded_coordinate_hessian(
             np.concatenate(X), kappas
         )
-        utility.append(-1 / np.linalg.det(H).item())
+        utility.append(np.linalg.det(H).item())
         kappas.pop()
         X.pop()
 
@@ -201,6 +200,33 @@ def acquisition_function_map_hessian(
             utility_y.append(-np.linalg.det(H_inv))
         utility.append(min(utility_y))
 
+    argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
+    if return_utility:
+        return candidate_queries[np.random.choice(argmax)], utility
+    else:
+        return candidate_queries[np.random.choice(argmax)]
+
+
+def acquisition_function_current_map_hessian(
+    reward_model: LinearLogisticRewardModel,
+    candidate_queries: List[np.array],
+    return_utility: bool = True,
+) -> Union[np.ndarray, Tuple[np.ndarray, List]]:
+    """_summary_
+
+    Args:
+        reward_model (LinearLogisticRewardModel): _description_
+        candidate_queries (List[np.array]): _description_
+        return_utility (bool, optional): _description_. Defaults to True.
+
+    Returns:
+        Union[np.ndarray, Tuple[np.ndarray, List]: _description_
+    """
+    utility = []
+    mean, cov = reward_model.get_parameters_moments()
+    for x in candidate_queries:
+        kappa_x = (expit(x @ mean) * (1 - expit(x @ mean))).item()
+        utility.append(kappa_x * (x @ cov @ x.T).item())
     argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
     if return_utility:
         return candidate_queries[np.random.choice(argmax)], utility

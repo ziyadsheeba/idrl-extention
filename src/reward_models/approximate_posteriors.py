@@ -38,13 +38,13 @@ class LaplaceApproximation(ApproximatePosterior):
         self.neglog_posterior = neglog_posterior
         self.hessian = hessian
         self._mean = prior_mean
-        self._hessian_inv = matrix_inverse(prior_covariance)
+        self._hessian_inv = prior_covariance
 
     def get_mean(self):
         return self._mean
 
     def get_covariance(self):
-        return matrix_inverse(self._hessian_inv)
+        return self._hessian_inv
 
     def update(self, X: np.ndarray, y: np.ndarray):
         self._mean, self._hessian_inv = self.simulate_update(X, y)

@@ -21,6 +21,7 @@ from src.aquisition_functions.aquisition_functions import (
     acquisition_function_bounded_coordinate_hessian,
     acquisition_function_bounded_hessian,
     acquisition_function_bounded_hessian_trace,
+    acquisition_function_current_map_hessian,
     acquisition_function_expected_hessian,
     acquisition_function_map_confidence,
     acquisition_function_map_hessian,
@@ -53,8 +54,9 @@ THETA_LOWER = -2
 X_LOWER = -1
 X_UPPER = 1
 GRID_RES = 50j
-PRIOR_VARIANCE_SCALE = 1
+PRIOR_VARIANCE_SCALE = 100
 ALGORITHM = "map_confidence"
+PLOT = True
 
 
 class Expert:
@@ -166,9 +168,16 @@ class Agent:
         Returns:
             Tuple[np.ndarray, np.ndarray]: _description_
         """
+        global PLOT
         candidate_queries = get_grid_points(
             x_min=X_LOWER, x_max=X_UPPER, n_points=GRID_RES
         )
+        # if self.counter <= 1000:
+        #     algorithm = "random"
+        #     PLOT = False
+        # else:
+        #     PLOT = True
+
         if algorithm == "bounded_hessian":
             query_best, utility = acquisition_function_bounded_hessian(
                 self.reward_model, candidate_queries
@@ -211,6 +220,10 @@ class Agent:
             )
         elif algorithm == "map_confidence":
             query_best, utility = acquisition_function_map_confidence(
+                self.reward_model, candidate_queries
+            )
+        elif algorithm == "current_map_hessian":
+            query_best, utility = acquisition_function_current_map_hessian(
                 self.reward_model, candidate_queries
             )
         else:
@@ -271,13 +284,15 @@ def simultate(
 
         results[seed] = {algortihm: [] for algortihm in ["default", "bald", "random"]}
 
-        plt.ion()
-        fig, axs = plt.subplots(3, 2, gridspec_kw={"width_ratios": [100, 5]})
+        if PLOT:
+            plt.ion()
+            fig, axs = plt.subplots(3, 2, gridspec_kw={"width_ratios": [100, 5]})
+            palette = {1: "orange", 0: "pink"}
+
         steps = []
         queries_x = []
         queries_y = []
         labels = []
-        palette = {1: "orange", 0: "pink"}
         for step in range(simulation_steps):
             query_x, query_y, label, utility = agent.optimize_query(algorithm=ALGORITHM)
             df_query = dict(
@@ -293,73 +308,79 @@ def simultate(
             labels.append(label)
 
             # Regret Viz
-            axs[0, 0].plot(steps, results[seed]["default"], color="green")
-            axs[0, 0].set_title("Regret")
-            axs[0, 0].set_xlabel("Steps")
-            axs[0, 0].set_ylabel("Cosine Distance")
-            axs[0, 0].set_yscale("log")
+            if PLOT:
+
+                axs[0, 0].plot(steps, results[seed]["default"], color="green")
+                axs[0, 0].set_title("Regret")
+                axs[0, 0].set_xlabel("Steps")
+                axs[0, 0].set_ylabel("Cosine Distance")
+                axs[0, 0].set_yscale("log")
 
             df = pd.DataFrame(
                 dict(zip(["x", "y", "label"], [queries_x, queries_y, labels]))
             )
 
             # Query viz
-            axs[1, 0].clear()
-            sns.scatterplot(
-                data=df,
-                x="x",
-                y="y",
-                hue="label",
-                palette=palette,
-                legend=True,
-                ax=axs[1, 0],
-            )
-            axs[1, 0].plot(
-                df.iloc[-1]["x"],
-                df.iloc[-1]["y"],
-                marker="x",
-                color="black",
-                markersize=10,
-            )
+            if PLOT:
 
-            point_1, point_2 = get_2d_direction_points(theta)
-            sns.lineplot(
-                x=[point_1[0], point_2[0]],
-                y=[point_1[1], point_2[1]],
-                ax=axs[1, 0],
-                color="green",
-                label="True Boundary",
-            )
-            point_1, point_2 = get_2d_direction_points(
-                theta_hat / np.linalg.norm(theta_hat)
-            )
-            sns.lineplot(
-                x=[point_1[0], point_2[0]],
-                y=[point_1[1], point_2[1]],
-                ax=axs[1, 0],
-                color="red",
-                label="MAP Boundary",
-            )
-            axs[1, 0].set_title("Query Visualization")
-            axs[1, 0].set_xlabel("x1")
-            axs[1, 0].set_ylabel("x2")
-            axs[1, 0].set_ylim(X_LOWER - 0.05, X_UPPER + 0.05)
-            axs[1, 0].set_xlim(X_LOWER - 0.05, X_UPPER + 0.05)
+                axs[1, 0].clear()
+                sns.scatterplot(
+                    data=df,
+                    x="x",
+                    y="y",
+                    hue="label",
+                    palette=palette,
+                    legend=True,
+                    ax=axs[1, 0],
+                )
+                axs[1, 0].plot(
+                    df.iloc[-1]["x"],
+                    df.iloc[-1]["y"],
+                    marker="x",
+                    color="black",
+                    markersize=10,
+                )
 
-            # Heatmap Viz
-            axs[2, 0].clear()
-            heatmap = from_utility_dict_to_heatmap(utility)
-            sns.heatmap(
-                heatmap,
-                cmap="YlGnBu",
-                annot=True,
-                ax=axs[2, 0],
-                cbar_ax=axs[2, 1],
-                vmin=0,
-                vmax=1,
-                cbar=step == 0,
-                annot_kws={"fontsize": 4},
-            )
+                point_1, point_2 = get_2d_direction_points(theta)
+                sns.lineplot(
+                    x=[point_1[0], point_2[0]],
+                    y=[point_1[1], point_2[1]],
+                    ax=axs[1, 0],
+                    color="green",
+                    label="True Boundary",
+                )
+                point_1, point_2 = get_2d_direction_points(
+                    theta_hat / np.linalg.norm(theta_hat)
+                )
+                sns.lineplot(
+                    x=[point_1[0], point_2[0]],
+                    y=[point_1[1], point_2[1]],
+                    ax=axs[1, 0],
+                    color="red",
+                    label="MAP Boundary",
+                )
+                axs[1, 0].set_title("Query Visualization")
+                axs[1, 0].set_xlabel("x1")
+                axs[1, 0].set_ylabel("x2")
+                axs[1, 0].set_ylim(X_LOWER - 0.05, X_UPPER + 0.05)
+                axs[1, 0].set_xlim(X_LOWER - 0.05, X_UPPER + 0.05)
+
+                # Heatmap Viz
+                axs[2, 0].clear()
+                heatmap = from_utility_dict_to_heatmap(utility)
+                sns.heatmap(
+                    heatmap,
+                    cmap="YlGnBu",
+                    annot=True,
+                    ax=axs[2, 0],
+                    cbar_ax=axs[2, 1],
+                    vmin=0,
+                    vmax=1,
+                    cbar=step == 0,
+                    annot_kws={"fontsize": 4},
+                )
+                plt.pause(0.00000001)
+                plt.draw()
 
             # Update the agent
             agent.update_belief(np.array([[query_x, query_y]]), label)
@@ -371,10 +392,8 @@ def simultate(
                 f"Optimized: {cosine_distance}",
             )
             print(df["label"].value_counts())
-
-            plt.pause(0.00001)
-            plt.draw()
-        plt.close("all")
+        if PLOT:
+            plt.close("all")
     os.makedirs(EXPERIMENTS_PATH / "linear", exist_ok=True)
     with open(str(EXPERIMENTS_PATH / "linear" / "results.json"), "w") as f:
         json.dump(results, f)
