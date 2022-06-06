@@ -29,6 +29,30 @@ def sample_random_ball(dimension: int, radius: int = 1):
     return radius * (random_directions * random_radii)
 
 
+def sample_random_cube(
+    dim: int, x_min: float, x_max: float, n_points: int = 2500
+) -> list:
+    """Generates a random vector uniformly sampled from a hypercube.
+
+    Args:
+        dim (int): Dimension
+        x_min (float): lower bound on each coordinate.
+        x_max (float): upper bound on each coordinate
+        n_points (int, optional): number of points to generate. Defaults to 2500.
+
+    Returns:
+        list: _description_
+    """
+    positions = np.random.uniform(
+        low=x_min, high=x_max + 1e-10, size=(n_points, dim)
+    ).round(2)
+    positions = np.unique(positions, axis=0)
+    positions = [
+        np.expand_dims(positions[i, :], axis=0) for i in range(positions.shape[0])
+    ]
+    return positions
+
+
 def get_grid_points(
     x_max: float = 2, x_min: float = -2, dim: int = 2, n_points=20j
 ) -> list:
@@ -51,7 +75,6 @@ def from_utility_dict_to_heatmap(
         df["utility"] = (df["utility"] - df["utility"].min()) / (
             df["utility"].max() - df["utility"].min()
         )
-    df = df.round(2)
     heatmap = df.pivot(index="y", columns="x", values="utility")
     heatmap = heatmap.sort_index(ascending=False)
     return heatmap
@@ -457,12 +480,17 @@ def record_gym_video(env, policy, filename):
     save_video(images, filename)
 
 
-def get_2d_direction_points(direction: np.ndarray, scale_max=3, scale_min=-3):
+def get_2d_direction_points(direction: np.ndarray, scale: float = 3):
     direction = direction.squeeze()
-    direction = direction / np.linalg.norm(direction)
-    point1 = scale_max * direction
+
+    direction = (
+        direction / np.linalg.norm(direction)
+        if np.linalg.norm(direction) > 0
+        else direction
+    )
+    point1 = scale * direction
     point1 = np.array([-point1[1], point1[0]])
-    point2 = scale_min * direction
+    point2 = -scale * direction
     point2 = np.array([-point2[1], point2[0]])
 
     return point1, point2

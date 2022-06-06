@@ -3,7 +3,7 @@ from collections import defaultdict, namedtuple
 from pathlib import Path
 
 constants_path = Path(__file__)
-PROJECT_PATH = constants_path.parent
+PROJECT_PATH = constants_path.parent.parent
 EXPERIMENTS_PATH = PROJECT_PATH / "experiments"
 
 

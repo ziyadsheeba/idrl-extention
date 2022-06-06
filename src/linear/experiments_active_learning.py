@@ -41,20 +41,26 @@ from src.utils import (
     get_grid_points,
     multivariate_normal_sample,
     sample_random_ball,
+    sample_random_cube,
     timeit,
 )
 
 matplotlib.use("Qt5Agg")
 plt.style.use("ggplot")
 
-DIMENSIONALITY = 2
-THETA_NORM = 2
-X_LOWER = -1
-X_UPPER = 1
-GRID_RES = 50j
-PRIOR_VARIANCE_SCALE = 100
-ALGORITHM = "map_confidence"
-PLOT = True
+from src.linear.experiments_config import (
+    ALGORITHMS,
+    DIMENSIONALITY,
+    EXPERT_SCALE,
+    GRID_RES,
+    PLOT,
+    PRIOR_VARIANCE_SCALE,
+    SEEDS,
+    SIMULATION_STEPS,
+    THETA_NORM,
+    X_MAX,
+    X_MIN,
+)
 
 
 class Expert:
@@ -86,7 +92,6 @@ class Expert:
 
     def query_diff_comparison(self, x_delta: np.ndarray) -> int:
         p = expit(x_delta @ self.true_parameter).item()
-        print(f"Probability of 1: {p}")
         feedback = np.random.choice([1, 0], p=[p, 1 - p])
         return feedback
 
@@ -146,6 +151,9 @@ class Agent:
             Tuple[np.ndarray, np.ndarray]: _description_
         """
         candidate_queries = get_grid_points(x_min=x_min, x_max=x_max, n_points=grid_res)
+        # candidate_queries = sample_random_cube(
+        #     dim=self.state_space_dim, x_min=x_min, x_max=x_max
+        # )
         if algorithm == "bounded_hessian":
             query_best, utility = acquisition_function_bounded_hessian(
                 self.reward_model, candidate_queries
@@ -212,157 +220,183 @@ class Agent:
 
 
 def simultate(
-    num_experiments: int = typer.Option(...),
-    simulation_steps: int = typer.Option(...),
-):
+    algorithm: str,
+    dimensionality: int,
+    theta_norm: float,
+    x_min: float,
+    x_max: float,
+    grid_res: complex,
+    prior_variance_scale: float,
+    expert_scale: float,
+    plot: bool,
+    simulation_steps: int,
+) -> list:
 
-    seeds = [np.random.randint(0, 2**32) for _ in range(num_experiments)]
-    results = {}
-    for seed in seeds:
-        np.random.seed(seed)
+    # Initialize the true parameters of the true reward
+    theta = np.random.normal(
+        loc=0, scale=(theta_norm) ** 2 / 2, size=(dimensionality, 1)
+    )
 
-        # Initialize the true parameters of the true reward
-        theta = np.random.normal(
-            loc=0, scale=(THETA_NORM) ** 2 / 2, size=(DIMENSIONALITY, 1)
+    # Initialize the expert
+    expert = Expert(true_parameter=expert_scale * theta)
+
+    # Initialize the reward model
+    reward_model = LinearLogisticRewardModel(
+        dim=dimensionality,
+        prior_variance=prior_variance_scale * (theta_norm) ** 2 / 2,
+        param_constraint=SphericalConstraint(
+            b=theta_norm**2,
+            dim=dimensionality,
+        ),
+    )
+
+    # Initialize the agents
+    agent = Agent(
+        expert=expert,
+        reward_model=reward_model,
+        state_space_dim=dimensionality,
+    )
+
+    regret = []
+    if plot:
+        plt.ion()
+        fig, axs = plt.subplots(3, 2, gridspec_kw={"width_ratios": [100, 5]})
+        palette = {1: "orange", 0: "pink"}
+
+    steps = []
+    queries_x = []
+    queries_y = []
+    labels = []
+    for step in range(simulation_steps):
+        query_x, query_y, label, utility = agent.optimize_query(
+            x_min=x_min, x_max=x_max, grid_res=grid_res, algorithm=algorithm
+        )
+        df_query = dict(
+            zip(["x", "y", "label"], [queries_x, queries_y, labels]), index=[0]
+        )
+        theta_hat = agent.get_parameters_estimate()
+        cosine_distance = (
+            spatial.distance.cosine(theta, theta_hat)
+            if np.linalg.norm(theta_hat) > 0
+            else 1
+        )
+        regret.append(cosine_distance)
+        steps.append(step)
+
+        queries_x.append(query_x)
+        queries_y.append(query_y)
+        labels.append(label)
+        df = pd.DataFrame(
+            dict(zip(["x", "y", "label"], [queries_x, queries_y, labels]))
         )
 
-        # Initialize the expert
-        expert = Expert(true_parameter=theta)
-
-        # Initialize the reward model
-        reward_model = LinearLogisticRewardModel(
-            dim=DIMENSIONALITY,
-            prior_variance=PRIOR_VARIANCE_SCALE * (THETA_NORM) ** 2 / 2,
-            param_constraint=SphericalConstraint(
-                b=THETA_NORM**2,
-                dim=DIMENSIONALITY,
-            ),
-        )
-
-        # Initialize the agents
-        agent = Agent(
-            expert=expert,
-            reward_model=reward_model,
-            state_space_dim=DIMENSIONALITY,
-        )
-
-        results[seed] = {algortihm: [] for algortihm in ["default", "bald", "random"]}
-
-        if PLOT:
-            plt.ion()
-            fig, axs = plt.subplots(3, 2, gridspec_kw={"width_ratios": [100, 5]})
-            palette = {1: "orange", 0: "pink"}
-
-        steps = []
-        queries_x = []
-        queries_y = []
-        labels = []
-        for step in range(simulation_steps):
-            query_x, query_y, label, utility = agent.optimize_query(
-                x_min=X_LOWER, x_max=X_UPPER, grid_res=GRID_RES, algorithm=ALGORITHM
-            )
-            df_query = dict(
-                zip(["x", "y", "label"], [queries_x, queries_y, labels]), index=[0]
-            )
-            theta_hat = agent.get_parameters_estimate()
-            cosine_distance = spatial.distance.cosine(theta, theta_hat)
-            results[seed]["default"].append(cosine_distance)
-            steps.append(step)
-
-            queries_x.append(query_x)
-            queries_y.append(query_y)
-            labels.append(label)
+        if plot:
+            axs[0, 0].clear()
+            axs[1, 0].clear()
+            axs[2, 0].clear()
 
             # Regret Viz
-            if PLOT:
-
-                axs[0, 0].plot(steps, results[seed]["default"], color="green")
-                axs[0, 0].set_title("Regret")
-                axs[0, 0].set_xlabel("Steps")
-                axs[0, 0].set_ylabel("Cosine Distance")
-                axs[0, 0].set_yscale("log")
-
-            df = pd.DataFrame(
-                dict(zip(["x", "y", "label"], [queries_x, queries_y, labels]))
-            )
+            axs[0, 0].set_title("Regret")
+            axs[0, 0].set_xlabel("Steps")
+            axs[0, 0].set_ylabel("Cosine Distance")
+            axs[0, 0].set_yscale("log")
+            axs[0, 0].plot(steps, regret, color="green")
 
             # Query viz
-            if PLOT:
-                axs[1, 0].clear()
-                sns.scatterplot(
-                    data=df,
-                    x="x",
-                    y="y",
-                    hue="label",
-                    palette=palette,
-                    legend=True,
-                    ax=axs[1, 0],
-                )
-                axs[1, 0].plot(
-                    df.iloc[-1]["x"],
-                    df.iloc[-1]["y"],
-                    marker="x",
-                    color="black",
-                    markersize=10,
-                )
+            axs[1, 0].set_title("Query Visualization")
+            axs[1, 0].set_xlabel("x1")
+            axs[1, 0].set_ylabel("x2")
+            axs[1, 0].set_ylim(x_min - 0.05, x_max + 0.05)
+            axs[1, 0].set_xlim(x_min - 0.05, x_max + 0.05)
 
-                point_1, point_2 = get_2d_direction_points(theta)
-                sns.lineplot(
-                    x=[point_1[0], point_2[0]],
-                    y=[point_1[1], point_2[1]],
-                    ax=axs[1, 0],
-                    color="green",
-                    label="True Boundary",
-                )
-                point_1, point_2 = get_2d_direction_points(
-                    theta_hat / np.linalg.norm(theta_hat)
-                )
-                sns.lineplot(
-                    x=[point_1[0], point_2[0]],
-                    y=[point_1[1], point_2[1]],
-                    ax=axs[1, 0],
-                    color="red",
-                    label="MAP Boundary",
-                )
-                axs[1, 0].set_title("Query Visualization")
-                axs[1, 0].set_xlabel("x1")
-                axs[1, 0].set_ylabel("x2")
-                axs[1, 0].set_ylim(X_LOWER - 0.05, X_UPPER + 0.05)
-                axs[1, 0].set_xlim(X_LOWER - 0.05, X_UPPER + 0.05)
-
-                # Heatmap Viz
-                axs[2, 0].clear()
-                heatmap = from_utility_dict_to_heatmap(utility)
-                sns.heatmap(
-                    heatmap,
-                    cmap="YlGnBu",
-                    annot=True,
-                    ax=axs[2, 0],
-                    cbar_ax=axs[2, 1],
-                    vmin=0,
-                    vmax=1,
-                    cbar=step == 0,
-                    annot_kws={"fontsize": 4},
-                )
-                plt.pause(0.00000001)
-                plt.draw()
-
-            # Update the agent
-            agent.update_belief(np.array([[query_x, query_y]]), label)
-
-            # Log metrics
-            print(f"Step: {step}")
-            print(
-                "Cosine Distance: ",
-                f"Optimized: {cosine_distance}",
+            point_1, point_2 = get_2d_direction_points(theta, scale=(x_max - x_min))
+            sns.lineplot(
+                x=[point_1[0], point_2[0]],
+                y=[point_1[1], point_2[1]],
+                ax=axs[1, 0],
+                color="green",
+                label="True Boundary",
             )
-            print(df["label"].value_counts())
-        if PLOT:
-            plt.close("all")
-    os.makedirs(EXPERIMENTS_PATH / "linear", exist_ok=True)
-    with open(str(EXPERIMENTS_PATH / "linear" / "results.json"), "w") as f:
-        json.dump(results, f)
+            point_1, point_2 = get_2d_direction_points(theta_hat, scale=(x_max - x_min))
+            sns.lineplot(
+                x=[point_1[0], point_2[0]],
+                y=[point_1[1], point_2[1]],
+                ax=axs[1, 0],
+                color="red",
+                label="MAP Boundary",
+            )
+            sns.scatterplot(
+                data=df,
+                x="x",
+                y="y",
+                hue="label",
+                palette=palette,
+                legend=True,
+                ax=axs[1, 0],
+            )
+            axs[1, 0].plot(
+                df.iloc[-1]["x"],
+                df.iloc[-1]["y"],
+                marker="x",
+                color="black",
+                markersize=10,
+            )
+
+            # Heatmap Viz
+            heatmap = from_utility_dict_to_heatmap(utility)
+            sns.heatmap(
+                heatmap,
+                cmap="YlGnBu",
+                annot=False,
+                ax=axs[2, 0],
+                cbar_ax=axs[2, 1],
+                vmin=0,
+                vmax=1,
+                cbar=step == 0,
+                annot_kws={"fontsize": 4},
+            )
+            plt.pause(0.000001)
+            plt.draw()
+
+        # Update the agent
+        agent.update_belief(np.array([[query_x, query_y]]), label)
+
+        # Log metrics
+        print(f"Step: {step}")
+        print(
+            "Cosine Distance: ",
+            f"Optimized: {cosine_distance}",
+        )
+        print(df["label"].value_counts())
+    plt.close("all")
+    return regret
 
 
 if __name__ == "__main__":
-    typer.run(simultate)
+    os.makedirs(EXPERIMENTS_PATH, exist_ok=True)
+    results = {}
+    for seed in SEEDS:
+        np.random.seed(seed)
+        if seed not in results:
+            results[seed] = {}
+        for algorithm in ALGORITHMS:
+            if algorithm not in results[seed]:
+                results[seed][algorithm] = {}
+            for dimensionality in DIMENSIONALITY:
+                if dimensionality not in results[seed][algorithm]:
+                    results[seed][algorithm][dimensionality] = {}
+
+                results[seed][algorithm][dimensionality] = simultate(
+                    algorithm=algorithm,
+                    dimensionality=dimensionality,
+                    theta_norm=THETA_NORM,
+                    expert_scale=EXPERT_SCALE,
+                    x_min=X_MIN,
+                    x_max=X_MAX,
+                    grid_res=GRID_RES,
+                    prior_variance_scale=PRIOR_VARIANCE_SCALE,
+                    plot=PLOT,
+                    simulation_steps=SIMULATION_STEPS,
+                )
+    with open(str(EXPERIMENTS_PATH / "results.json"), "w") as f:
+        json.dump(results, f)

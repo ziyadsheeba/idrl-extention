@@ -79,6 +79,13 @@ class LinearLogisticRewardModel(LogisticRewardModel):
         self.prior_covariance = prior_variance * np.eye(dim)
         self.prior_precision = matrix_inverse(self.prior_covariance)
         self.param_constraint = param_constraint
+        self.X = []
+        self.y = []
+        self.kappas = []
+        self.hessian_bound_inv = self.prior_covariance
+        self.hessian_bound_coord_inv = self.prior_covariance
+        self.kappa = kappa
+
         if approximation == "laplace":
             self.approximate_posterior = LaplaceApproximation(
                 dim=dim,
@@ -91,13 +98,6 @@ class LinearLogisticRewardModel(LogisticRewardModel):
             raise NotImplementedError(
                 f"The approximation '{approximation}' is not implemented."
             )
-
-        self.X = []
-        self.y = []
-        self.kappas = []
-        self.hessian_bound_inv = self.prior_precision
-        self.hessian_bound_coord_inv = self.prior_precision
-        self.kappa = kappa
 
     def neglog_posterior(
         self, theta: np.ndarray, y: np.ndarray = None, X: np.ndarray = None
@@ -145,7 +145,7 @@ class LinearLogisticRewardModel(LogisticRewardModel):
         Returns:
             float: The likelihood value.
         """
-        y_hat = expit(x @ theta)
+        y_hat = expit(x @ theta).item()
         likelihood = y_hat if y == 1 else 1 - y_hat
         return likelihood
 
@@ -202,7 +202,7 @@ class LinearLogisticRewardModel(LogisticRewardModel):
         if X is None:
             X = np.array(self.X)
         D = np.diag(expit(X @ theta) * (1 - expit(X @ theta)))
-        H = X.T @ D @ X + self.prior_covariance
+        H = X.T @ D @ X + self.prior_precision
         return H
 
     def neglog_posterior_bounded_hessian(
@@ -217,7 +217,7 @@ class LinearLogisticRewardModel(LogisticRewardModel):
         Returns:
             np.ndarray: The bounded hessian.
         """
-        H = X.T @ X * kappa + self.prior_covariance
+        H = X.T @ X * kappa + self.prior_precision
         return H
 
     def neglog_posterior_bounded_coordinate_hessian(
@@ -232,7 +232,7 @@ class LinearLogisticRewardModel(LogisticRewardModel):
         Returns:
             np.ndarray: _description_
         """
-        H = X.T @ np.diag(kappas) @ X + self.prior_covariance
+        H = X.T @ np.diag(kappas) @ X + self.prior_precision
         return H
 
     def increment_neglog_posterior_hessian(self, theta, x: np.ndarray) -> np.ndarray:
@@ -250,7 +250,7 @@ class LinearLogisticRewardModel(LogisticRewardModel):
         X = np.concatenate(X)
         D = np.eye(X.shape[0]) * (expit(X @ theta) * (1 - expit(X @ theta)))
         D = np.atleast_2d(D)
-        H = X.T @ D @ X + self.prior_covariance
+        H = X.T @ D @ X + self.prior_precision
         return H
 
     def increment_neglog_posterior_hessian_bound(
@@ -268,7 +268,7 @@ class LinearLogisticRewardModel(LogisticRewardModel):
         X = copy.deepcopy(self.X)
         X.append(x)
         X = np.concatenate(X)
-        H = kappa * X.T @ X + self.prior_covariance
+        H = kappa * X.T @ X + self.prior_precision
         return H
 
     def neglog_posterior_hessian_increment(

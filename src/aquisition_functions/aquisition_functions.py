@@ -3,6 +3,7 @@ from typing import List, Tuple, Union
 import cvxpy as cp
 import numpy as np
 from scipy.special import expit
+from scipy.stats import chi2
 
 from src.constraints.constraints import EllipticalConstraint
 from src.reward_models.logistic_reward_models import (
@@ -86,16 +87,28 @@ def acquisition_function_optimal_hessian(
 def acquisition_function_map_confidence(
     reward_model: LinearLogisticRewardModel,
     candidate_queries: List[np.array],
-    alpha: float = 0.1,
+    confidence: float = 0.5,
     return_utility: bool = True,
 ) -> Union[np.ndarray, Tuple[np.ndarray, List]]:
+    """_summary_
+
+    Args:
+        reward_model (LinearLogisticRewardModel): _description_
+        candidate_queries (List[np.array]): _description_
+        confidence (float, optional): _description_. Defaults to 0.2.
+        return_utility (bool, optional): _description_. Defaults to True.
+
+    Returns:
+        Union[np.ndarray, Tuple[np.ndarray, List]]: _description_
+    """
     utility = []
     mean, covariance = reward_model.get_parameters_moments()
-    levelset = -2 * np.log(1 - alpha)
+    print(f"Covariance {covariance}")
+    print(f"Covariance eigenvalues: {np.linalg.eigh(covariance)[0]}")
+    levelset = chi2.ppf(confidence, candidate_queries[0].shape[1])
     P = covariance * levelset
     X, _ = reward_model.get_dataset()
     kappas = []
-    print(P)
     for x in X:
         theta_i = P @ x.T / np.sqrt(x @ P @ x.T).item() + mean
         kappa_i = (expit(x @ theta_i) * (1 - expit(x @ theta_i))).item()
@@ -113,6 +126,9 @@ def acquisition_function_map_confidence(
         X.pop()
 
     argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
+    x_chosen = candidate_queries[argmax[0]]
+    kappa_i = (expit(x_chosen @ mean) * (1 - expit(x_chosen @ mean))).item()
+    print(f"kappa map chosen: {kappa_i}")
     if return_utility:
         return candidate_queries[np.random.choice(argmax)], utility
     else:
@@ -136,7 +152,6 @@ def acquisition_function_bounded_hessian_trace(
     """
     utility = []
     H_inv = reward_model.hessian_bound_inv
-    print("trace: ", np.trace(reward_model.hessian_bound_inv))
     for x in candidate_queries:
         if reward_model.kappa is None:
             kappa = 0.25
@@ -226,7 +241,8 @@ def acquisition_function_current_map_hessian(
     mean, cov = reward_model.get_parameters_moments()
     for x in candidate_queries:
         kappa_x = (expit(x @ mean) * (1 - expit(x @ mean))).item()
-        utility.append(kappa_x * (x @ cov @ x.T).item())
+        val = kappa_x * (x @ cov @ x.T).item()
+        utility.append(val)
     argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
     if return_utility:
         return candidate_queries[np.random.choice(argmax)], utility
