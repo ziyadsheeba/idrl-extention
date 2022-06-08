@@ -2,10 +2,13 @@ import os
 from collections import defaultdict, namedtuple
 from pathlib import Path
 
+# Paths
 constants_path = Path(__file__)
 PROJECT_PATH = constants_path.parent.parent
 EXPERIMENTS_PATH = PROJECT_PATH / "experiments"
 
+# Env Metadata Paths
+DRIVER_METADATA = PROJECT_PATH / "env_metadata" / "driver"
 
 # source: https://gist.github.com/thriveth/8560036
 color_cycle = [

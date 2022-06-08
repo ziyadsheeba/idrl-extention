@@ -1,8 +1,8 @@
 """Experiments Config 
 """
 ALGORITHMS = [
-    "map_hessian",
     "map_confidence",
+    "map_hessian",
     "current_map_hessian",
     "bounded_coordinate_hessian",
     "optimal_hessian",
@@ -10,8 +10,8 @@ ALGORITHMS = [
     "bounded_hessian",
 ]
 DIMENSIONALITY = [2]
-THETA_NORM = 10
-EXPERT_SCALE = 1
+THETA_NORM = 1
+EXPERT_SCALE = 40
 X_MIN = -5
 X_MAX = 5
 GRID_RES = 70j

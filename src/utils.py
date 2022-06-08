@@ -1,3 +1,4 @@
+import itertools
 import os
 import subprocess
 import time
@@ -30,7 +31,7 @@ def sample_random_ball(dimension: int, radius: int = 1):
 
 
 def sample_random_cube(
-    dim: int, x_min: float, x_max: float, n_points: int = 2500
+    dim: int, x_min: Union[list, float], x_max: Union[list, float], n_points: int = 2500
 ) -> list:
     """Generates a random vector uniformly sampled from a hypercube.
 
@@ -43,14 +44,24 @@ def sample_random_cube(
     Returns:
         list: _description_
     """
-    positions = np.random.uniform(
-        low=x_min, high=x_max + 1e-10, size=(n_points, dim)
-    ).round(2)
+    positions = np.random.uniform(low=x_min, high=x_max, size=(n_points, dim)).round(2)
     positions = np.unique(positions, axis=0)
     positions = [
         np.expand_dims(positions[i, :], axis=0) for i in range(positions.shape[0])
     ]
     return positions
+
+
+def get_pairs_from_list(lst: list) -> List[tuple]:
+    """
+
+    Args:
+        lst (list): Input list.
+
+    Returns:
+        List[tuple]: List of paits.
+    """
+    return list(itertools.combinations(lst, 2))
 
 
 def get_grid_points(
