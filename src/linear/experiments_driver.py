@@ -51,13 +51,23 @@ plt.style.use("ggplot")
 
 DIMENSIONALITY = 8
 THETA_NORM = 1
-X_LOWER = [-0.7, -0.2, -np.pi, -1, 0]
-X_UPPER = [0.7, 0.2, np.pi, 1, 1.456]
-GRID_RES = 50j
+X_LOWER = [
+    -0.7,  # x distance
+    -0.2,  # y distance
+    -np.pi,  # heading angle
+    -1,  # velocity
+    0,  # distance to the car
+]
+X_UPPER = [
+    0.7,  # x distance
+    0.2,  # y distance
+    np.pi,  # heading angle
+    1,  # velocity
+    1.456,  # distance to the car
+]
 PRIOR_VARIANCE_SCALE = 1
 ALGORITHM = "bounded_hessian"
-PLOT = True
-SIMULATION_STEPS = 2
+SIMULATION_STEPS = 100
 
 
 class Agent:
@@ -159,8 +169,7 @@ class Agent:
             )
         else:
             raise NotImplementedError()
-        argmax = np.argmax(utility)
-        y = self.query_expert(candidate_queries[argmax])
+        y = self.query_expert(query_best.squeeze().tolist())
         self.counter += 1
         if return_utility:
             candidate_queries = [x.tobytes() for x in candidate_queries]
@@ -201,13 +210,12 @@ def simultate():
         done = False
         s = env.reset()
         r = 0
-        print(reward_model.get_parameters_estimate().squeeze())
         while not done:
             a = policy[int(s[-1])]
             s, reward, done, info = env.step(a)
             r += reward
-            # env.render("human")
-            # time.sleep(0.2)
+            env.render("human")
+            time.sleep(0.1)
         query_best, label, utility = agent.optimize_query(
             x_min=X_LOWER, x_max=X_UPPER, algorithm=ALGORITHM
         )

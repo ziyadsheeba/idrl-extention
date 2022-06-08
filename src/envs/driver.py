@@ -294,8 +294,20 @@ class Driver:
             dtype=float,
         )
 
-    def get_query_features(self, query_state):
+    def get_query_features(self, query_state: list) -> np.ndarray:
+        """The query state differs from the
+
+        Args:
+            query_state (list): The query state. Integrates car distances in the states too, i.e
+                [x_post, y_pos, heading, velocity, car_dist1, car_dist2, ...]
+
+        Returns:
+            np.ndarray: The array of features.
+        """
         x, y, theta, v, *car_dist = query_state
+        assert len(car_dist) == len(
+            self.cars
+        ), "car distances doesn't equal the number of cars"
         off_street = int(np.abs(x) > self.roads[0].width / 2)
 
         b = 10000
@@ -557,12 +569,6 @@ class Driver:
             for i in range(N_cars):
                 x_cars[i].append(car_states[i][0])
                 y_cars[i].append(car_states[i][1])
-
-        # print("x_player", x_player)
-        # print("y_player", y_player)
-        # print("x_cars", x_cars)
-        # print("y_cars", y_cars)
-
         self.reset()
         self.render(mode="human_static")
         plt.axis("off")
@@ -641,19 +647,6 @@ def get_cars(cars_trajectory):
         s3 = 0
         car3 = Car([x3, y3, np.pi / 2.0, s3], [(0, s3)] * 20)
         cars = [car1, car2, car3]
-        # x1 = -0.17
-        # y1 = 1.7
-        # s1 = 0.4
-        # car1 = Car([x1, y1, np.pi / 2.0, s1], [(0, s1)] * 20)
-        # x2 = 0
-        # y2 = 0.4
-        # s2 = 0.15
-        # car2 = Car([x2, y2, np.pi / 2.0, s2], [(0, s2)] * 20)
-        # x3 = 0.17
-        # y3 = 0.6
-        # s3 = 0.1
-        # car3 = Car([x3, y3, np.pi / 2.0, s3], [(0, s3)] * 20)
-        # cars = [car1, car2, car3]
     elif cars_trajectory == "changing_lane":
         # car driving from right to middle lane
         car_x = get_lane_x("right")
