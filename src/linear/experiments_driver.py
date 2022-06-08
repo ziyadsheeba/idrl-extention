@@ -49,25 +49,15 @@ from src.utils import (
 matplotlib.use("Qt5Agg")
 plt.style.use("ggplot")
 
-DIMENSIONALITY = 8
-THETA_NORM = 1
-X_LOWER = [
-    -0.7,  # x distance
-    -0.2,  # y distance
-    -np.pi,  # heading angle
-    -1,  # velocity
-    0,  # distance to the car
-]
-X_UPPER = [
-    0.7,  # x distance
-    0.2,  # y distance
-    np.pi,  # heading angle
-    1,  # velocity
-    1.456,  # distance to the car
-]
-PRIOR_VARIANCE_SCALE = 1
-ALGORITHM = "bounded_hessian"
-SIMULATION_STEPS = 100
+from src.linear.driver_config import (
+    ALGORITHM,
+    DIMENSIONALITY,
+    PRIOR_VARIANCE_SCALE,
+    SIMULATION_STEPS,
+    THETA_NORM,
+    X_LOWER,
+    X_UPPER,
+)
 
 
 class Agent:
@@ -182,7 +172,15 @@ class Agent:
             return query_best, y
 
 
-def simultate():
+def simultate(
+    algorithm: str,
+    dimensionality: int,
+    theta_norm: float,
+    x_min: float,
+    x_max: float,
+    prior_variance_scale: float,
+    simulation_steps: int,
+):
     env = get_driver_target_velocity()
     optimal_policy, *_ = env.get_optimal_policy()
 
@@ -216,13 +214,21 @@ def simultate():
             r += reward
             env.render("human")
             time.sleep(0.1)
+        env.plot_history()
+        plt.savefig("driver.pdf")
         query_best, label, utility = agent.optimize_query(
             x_min=X_LOWER, x_max=X_UPPER, algorithm=ALGORITHM
         )
         agent.update_belief(query_best, label)
-    env.plot_history()
-    plt.savefig("driver.pdf")
 
 
 if __name__ == "__main__":
-    typer.run(simultate)
+    simultate(
+        algorithm=ALGORITHM,
+        dimensionality=DIMENSIONALITY,
+        theta_norm=THETA_NORM,
+        x_min=X_MIN,
+        x_max=X_MAX,
+        prior_variance_scale=PRIOR_VARIANCE_SCALE,
+        simulation_steps=SIMULATION_STEPS,
+    )

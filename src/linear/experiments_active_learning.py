@@ -48,7 +48,7 @@ from src.utils import (
 matplotlib.use("Qt5Agg")
 plt.style.use("ggplot")
 
-from src.linear.experiments_config import (
+from src.linear.active_learning_config import (
     ALGORITHMS,
     DIMENSIONALITY,
     EXPERT_SCALE,
