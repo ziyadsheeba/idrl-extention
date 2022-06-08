@@ -87,7 +87,7 @@ class Expert:
         ), "Mismatch between states and parameters dimensions"
         x_delta = x_1 - x_2
         p = expit(x_delta @ self.true_parameter).item()
-        feedback = numpy.random.choice([1, 0], p=[p, 1 - p])
+        feedback = np.random.choice([1, 0], p=[p, 1 - p])
         return feedback
 
     def query_diff_comparison(self, x_delta: np.ndarray) -> int:
@@ -151,9 +151,7 @@ class Agent:
             Tuple[np.ndarray, np.ndarray]: _description_
         """
         candidate_queries = get_grid_points(x_min=x_min, x_max=x_max, n_points=grid_res)
-        # candidate_queries = sample_random_cube(
-        #     dim=self.state_space_dim, x_min=x_min, x_max=x_max
-        # )
+
         if algorithm == "bounded_hessian":
             query_best, utility = acquisition_function_bounded_hessian(
                 self.reward_model, candidate_queries
