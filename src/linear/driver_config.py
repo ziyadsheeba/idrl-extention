@@ -1,5 +1,7 @@
+import numpy as np
+
 DIMENSIONALITY = 8
-THETA_NORM = 1
+THETA_NORM = 2
 X_MIN = [
     -0.7,  # x distance
     -0.2,  # y distance
@@ -15,5 +17,5 @@ X_MAX = [
     1.456,  # distance to the car
 ]
 PRIOR_VARIANCE_SCALE = 1
-ALGORITHM = "bounded_hessian"
-SIMULATION_STEPS = 3000
+ALGORITHM = "bounded_coordinate_hessian"
+SIMULATION_STEPS = 1000

@@ -25,6 +25,7 @@ opencv-python-headless = "*"
 cvxpy = "*"
 pandas = "*"
 dvc = "*"
+mlflow = "*"
 
 [dev-packages]
 

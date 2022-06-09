@@ -57,7 +57,7 @@ class LinearLogisticRewardModel(LogisticRewardModel):
         self,
         dim: int,
         prior_variance: float,
-        param_constraint: Constraint,
+        param_norm: float = 1,
         prior_mean: np.ndarray = None,
         approximation: str = "laplace",
         kappa: float = None,
@@ -78,13 +78,13 @@ class LinearLogisticRewardModel(LogisticRewardModel):
 
         self.prior_covariance = prior_variance * np.eye(dim)
         self.prior_precision = matrix_inverse(self.prior_covariance)
-        self.param_constraint = param_constraint
         self.X = []
         self.y = []
         self.kappas = []
         self.hessian_bound_inv = self.prior_covariance
         self.hessian_bound_coord_inv = self.prior_covariance
         self.kappa = kappa
+        self.param_norm = param_norm
 
         if approximation == "laplace":
             self.approximate_posterior = LaplaceApproximation(
@@ -401,13 +401,9 @@ class LinearLogisticRewardModel(LogisticRewardModel):
     def compute_uniform_kappa(
         self, X: np.ndarray, return_kappa_list: bool = False
     ) -> float:
-        constraints, theta = self.param_constraint.get_cvxpy_constraint()
-
         def _get_kappa(x) -> float:
-            objective = cp.Maximize(x @ theta)
-            problem = cp.Problem(objective, constraints)
-            problem.solve()
-            kappa = expit(x @ theta.value) * (1 - expit(x @ theta.value))
+            theta_i = self.param_norm * x.T / np.linalg.norm(x)
+            kappa = expit(x @ theta_i) * (1 - expit(x @ theta_i))
             return kappa[0][0]
 
         kappa = np.Inf

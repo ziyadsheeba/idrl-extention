@@ -87,7 +87,7 @@ def acquisition_function_optimal_hessian(
 def acquisition_function_map_confidence(
     reward_model: LinearLogisticRewardModel,
     candidate_queries: List[np.array],
-    confidence: float = 0.5,
+    confidence: float = 0.2,
     return_utility: bool = True,
 ) -> Union[np.ndarray, Tuple[np.ndarray, List]]:
     """_summary_
@@ -103,8 +103,6 @@ def acquisition_function_map_confidence(
     """
     utility = []
     mean, covariance = reward_model.get_parameters_moments()
-    print(f"Covariance {covariance}")
-    print(f"Covariance eigenvalues: {np.linalg.eigh(covariance)[0]}")
     levelset = chi2.ppf(confidence, candidate_queries[0].shape[1])
     P = covariance * levelset
     X, _ = reward_model.get_dataset()
@@ -126,9 +124,6 @@ def acquisition_function_map_confidence(
         X.pop()
 
     argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
-    x_chosen = candidate_queries[argmax[0]]
-    kappa_i = (expit(x_chosen @ mean) * (1 - expit(x_chosen @ mean))).item()
-    print(f"kappa map chosen: {kappa_i}")
     if return_utility:
         return candidate_queries[np.random.choice(argmax)], utility
     else:
