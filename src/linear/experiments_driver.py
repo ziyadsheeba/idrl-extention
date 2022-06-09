@@ -8,6 +8,7 @@ from typing import Callable, List, Tuple
 import cvxpy as cp
 import matplotlib
 import matplotlib.pyplot as plt
+import mlflow
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -55,8 +56,8 @@ from src.linear.driver_config import (
     PRIOR_VARIANCE_SCALE,
     SIMULATION_STEPS,
     THETA_NORM,
-    X_LOWER,
-    X_UPPER,
+    X_MAX,
+    X_MIN,
 )
 
 
@@ -186,11 +187,11 @@ def simultate(
 
     # Initialize the reward model
     reward_model = LinearLogisticRewardModel(
-        dim=DIMENSIONALITY,
-        prior_variance=PRIOR_VARIANCE_SCALE * (THETA_NORM) ** 2 / 2,
+        dim=dimensionality,
+        prior_variance=prior_variance_scale * (theta_norm) ** 2 / 2,
         param_constraint=SphericalConstraint(
-            b=THETA_NORM**2,
-            dim=DIMENSIONALITY,
+            b=theta_norm**2,
+            dim=dimensionality,
         ),
     )
     # Initialize the agents
@@ -198,10 +199,10 @@ def simultate(
         query_expert=env.get_comparison_from_feature_diff,
         state_to_features=env.get_query_features,
         reward_model=reward_model,
-        state_space_dim=DIMENSIONALITY,
+        state_space_dim=dimensionality,
     )
 
-    for step in range(SIMULATION_STEPS):
+    for step in tqdm(range(simulation_steps)):
         policy, *_ = env.get_optimal_policy(
             theta=reward_model.get_parameters_estimate().squeeze()
         )
@@ -213,22 +214,36 @@ def simultate(
             s, reward, done, info = env.step(a)
             r += reward
             env.render("human")
-            time.sleep(0.1)
-        env.plot_history()
-        plt.savefig("driver.pdf")
+        plt.close("all")
+
+        if step % 20 == 0:
+            env.plot_history()
+            plt.pause(0.1)
+            mlflow.log_figure(plt.gcf(), f"driver_{step}.pdf")
+            plt.close("all")
+
         query_best, label, utility = agent.optimize_query(
-            x_min=X_LOWER, x_max=X_UPPER, algorithm=ALGORITHM
+            x_min=x_min, x_max=x_max, algorithm=algorithm
         )
         agent.update_belief(query_best, label)
 
 
 if __name__ == "__main__":
-    simultate(
-        algorithm=ALGORITHM,
-        dimensionality=DIMENSIONALITY,
-        theta_norm=THETA_NORM,
-        x_min=X_MIN,
-        x_max=X_MAX,
-        prior_variance_scale=PRIOR_VARIANCE_SCALE,
-        simulation_steps=SIMULATION_STEPS,
-    )
+    mlflow.set_experiment(f"driver/{ALGORITHM}")
+    with mlflow.start_run():
+        mlflow.log_param("algorithm", ALGORITHM)
+        mlflow.log_param("dimensionality", DIMENSIONALITY)
+        mlflow.log_param("theta_norm", THETA_NORM)
+        mlflow.log_param("x_min", X_MIN)
+        mlflow.log_param("x_max", X_MAX)
+        mlflow.log_param("prior_variance_scale", PRIOR_VARIANCE_SCALE)
+
+        simultate(
+            algorithm=ALGORITHM,
+            dimensionality=DIMENSIONALITY,
+            theta_norm=THETA_NORM,
+            x_min=X_MIN,
+            x_max=X_MAX,
+            prior_variance_scale=PRIOR_VARIANCE_SCALE,
+            simulation_steps=SIMULATION_STEPS,
+        )
