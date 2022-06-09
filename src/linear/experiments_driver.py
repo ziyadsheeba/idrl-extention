@@ -31,7 +31,6 @@ from src.aquisition_functions.aquisition_functions import (
     acquisition_function_random,
 )
 from src.constants import EXPERIMENTS_PATH
-from src.constraints.constraints import SphericalConstraint
 from src.envs.driver import get_driver_target_velocity
 from src.reward_models.logistic_reward_models import (
     LinearLogisticRewardModel,
@@ -189,10 +188,7 @@ def simultate(
     reward_model = LinearLogisticRewardModel(
         dim=dimensionality,
         prior_variance=prior_variance_scale * (theta_norm) ** 2 / 2,
-        param_constraint=SphericalConstraint(
-            b=theta_norm**2,
-            dim=dimensionality,
-        ),
+        param_norm=theta_norm,
     )
     # Initialize the agents
     agent = Agent(

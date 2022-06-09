@@ -1,6 +1,6 @@
 """Experiments Config 
 """
-ALGORITHM = "current_map_hessian"
+ALGORITHM = "bounded_coordinate_hessian"
 DIMENSIONALITY = 2
 THETA_NORM = 2
 EXPERT_SCALE = 1
