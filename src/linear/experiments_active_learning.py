@@ -290,8 +290,12 @@ def simultate(
         )
 
         axs[0, 0].clear()
+        axs[0, 1].clear()
         axs[1, 0].clear()
+        axs[1, 1].clear()
         axs[2, 0].clear()
+        axs[2, 1].clear()
+
 
         # Regret Viz
         axs[0, 0].set_title("Regret")

@@ -1,7 +1,9 @@
+import copy
 from typing import List, Tuple, Union
 
 import cvxpy as cp
 import numpy as np
+from joblib import Parallel, delayed
 from scipy.special import expit
 from scipy.stats import chi2
 
@@ -34,22 +36,28 @@ def acquisition_function_bounded_hessian(
     reward_model: LinearLogisticRewardModel,
     candidate_queries: List[np.array],
     return_utility: bool = True,
+    n_jobs: int = 8,
 ) -> Union[np.ndarray, Tuple[np.ndarray, List]]:
-    """Randomly picks a query.
+    """Uses the determinant of the bounded hessian to pick a query. The function is parallelized.
 
     Args:
         reward_model (LinearLogisticRewardModel): The reward model
         candidate_queries (List[np.array]): The candidate queries.
         return_utility (bool, optional): If the utility for each query should be returned. Defaults to True.
+        n_jobs (int, optional): The number of jobs to spawn for the query evaluation.
 
     Returns:
         Union[np.ndarray, Tuple[np.ndarray, List]: Optimal query or (optimal query, utility).
     """
-
-    utility = []
     H_inv = reward_model.hessian_bound_inv
-    for x in candidate_queries:
-        utility.append((x @ H_inv @ x.T).item())
+    global _get_val
+
+    def _get_val(x):
+        return (x @ H_inv @ x.T).item()
+
+    utility = Parallel(n_jobs=n_jobs, backend="multiprocessing")(
+        delayed(_get_val)(x) for x in candidate_queries
+    )
     argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
     if return_utility:
         return candidate_queries[np.random.choice(argmax)], utility
@@ -62,6 +70,7 @@ def acquisition_function_optimal_hessian(
     candidate_queries: List[np.array],
     theta: np.ndarray,
     return_utility: bool = True,
+    n_jobs: int = 8,
 ) -> Union[np.ndarray, Tuple[np.ndarray, List]]:
     """Picks the query that minimizes determinant of the hessian inverse an the true parameter.
 
@@ -73,10 +82,15 @@ def acquisition_function_optimal_hessian(
     Returns:
         Union[np.ndarray, Tuple[np.ndarray, List]: Optimal query or (optimal query, utility).
     """
-    utility = []
-    for x in candidate_queries:
+    global _get_val
+
+    def _get_val(x):
         H = reward_model.increment_neglog_posterior_hessian(theta, x)
-        utility.append(-1 / np.linalg.det(H))
+        return np.linalg.det(H)
+
+    utility = Parallel(n_jobs=n_jobs, backend="multiprocessing")(
+        delayed(_get_val)(x) for x in candidate_queries
+    )
     argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
     if return_utility:
         return candidate_queries[np.random.choice(argmax)], utility
@@ -106,12 +120,22 @@ def acquisition_function_map_confidence(
     levelset = chi2.ppf(confidence, candidate_queries[0].shape[1])
     P = covariance * levelset
     X, _ = reward_model.get_dataset()
-    kappas = []
-    for x in X:
+
+    global _get_kappas
+
+    def _get_kappas(x):
         theta_i = P @ x.T / np.sqrt(x @ P @ x.T).item() + mean
         kappa_i = (expit(x @ theta_i) * (1 - expit(x @ theta_i))).item()
-        kappas.append(kappa_i)
-    for x in candidate_queries:
+        return kappa_i
+
+    kappas = Parallel(n_jobs=n_jobs, backend="multiprocessing")(
+        delayed(_get_kappas)(x) for x in X
+    )
+
+    global _get_val
+
+    def _get_val(x):
+        kappas = copy.deecopy(kappas)
         theta_i = P @ x.T / np.sqrt(x @ P @ x.T).item() + mean
         kappa_i = (expit(x @ theta_i) * (1 - expit(x @ theta_i))).item()
         kappas.append(kappa_i)
@@ -119,10 +143,11 @@ def acquisition_function_map_confidence(
         H = reward_model.neglog_posterior_bounded_coordinate_hessian(
             np.concatenate(X), kappas
         )
-        utility.append(np.linalg.det(H).item())
-        kappas.pop()
-        X.pop()
+        return np.linalg.det(H).item()
 
+    utility = Parallel(n_jobs=n_jobs, backend="multiprocessing")(
+        delayed(_get_val)(x) for x in candidate_queries
+    )
     argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
     if return_utility:
         return candidate_queries[np.random.choice(argmax)], utility
@@ -165,6 +190,7 @@ def acquisition_function_bounded_coordinate_hessian(
     reward_model: LinearLogisticRewardModel,
     candidate_queries: List[np.array],
     return_utility: bool = True,
+    n_jobs: int = 8,
 ) -> Union[np.ndarray, Tuple[np.ndarray, List]]:
     """Picks the query that minimizes determinant of the bounded hessian inverse.
 
@@ -176,10 +202,16 @@ def acquisition_function_bounded_coordinate_hessian(
     Returns:
         Union[np.ndarray, Tuple[np.ndarray, List]: Optimal query or (optimal query, utility).
     """
-    utility = []
-    for x in candidate_queries:
-        H_inv, _ = reward_model.increment_inv_hessian_coordinate_bound(x)
-        utility.append(-np.linalg.det(H_inv))
+    global _get_val
+    H_inv = reward_model.hessian_bound_coord_inv
+
+    def _get_val(x):
+        kappa_i = reward_model.compute_uniform_kappa(x)
+        return kappa_i * (x @ H_inv @ x.T).item()
+
+    utility = Parallel(n_jobs=n_jobs, backend="multiprocessing")(
+        delayed(_get_val)(x) for x in candidate_queries
+    )
     argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
     if return_utility:
         return candidate_queries[np.random.choice(argmax)], utility
@@ -232,12 +264,16 @@ def acquisition_function_current_map_hessian(
     Returns:
         Union[np.ndarray, Tuple[np.ndarray, List]: _description_
     """
-    utility = []
     mean, cov = reward_model.get_parameters_moments()
-    for x in candidate_queries:
+    global _get_val
+
+    def _get_val(x):
         kappa_x = (expit(x @ mean) * (1 - expit(x @ mean))).item()
-        val = kappa_x * (x @ cov @ x.T).item()
-        utility.append(val)
+        return kappa_x * (x @ cov @ x.T).item()
+
+    utility = Parallel(n_jobs=n_jobs, backend="multiprocessing")(
+        delayed(_get_val)(x) for x in candidate_queries
+    )
     argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
     if return_utility:
         return candidate_queries[np.random.choice(argmax)], utility
