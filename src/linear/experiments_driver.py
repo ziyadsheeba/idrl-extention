@@ -47,6 +47,7 @@ from src.utils import (
 )
 
 matplotlib.use("Qt5Agg")
+matplotlib.use("Agg")
 plt.style.use("ggplot")
 
 from src.linear.driver_config import (
@@ -92,7 +93,6 @@ class Agent:
         x_min: float,
         x_max: float,
         algorithm: str = "map_hessian_trace",
-        return_utility: bool = True,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """_summary_
 
@@ -108,13 +108,12 @@ class Agent:
         feature_pairs = get_pairs_from_list(features)
         candidate_queries = [np.expand_dims(a - b, axis=0) for a, b in feature_pairs]
 
-        # features =
         if algorithm == "bounded_hessian":
-            query_best, utility = acquisition_function_bounded_hessian(
+            query_best, utility, argmax = acquisition_function_bounded_hessian(
                 self.reward_model, candidate_queries
             )
         elif algorithm == "map_hessian":
-            query_best, utility = acquisition_function_map_hessian(
+            query_best, utility, argmax = acquisition_function_map_hessian(
                 self.reward_model, candidate_queries
             )
         elif algorithm == "random":
@@ -122,54 +121,62 @@ class Agent:
                 self.reward_model, candidate_queries
             )
         elif algorithm == "bald":
-            query_best, utility = acquisition_function_bald(
+            query_best, utility, argmax = acquisition_function_bald(
                 self.reward_model, candidate_queries
             )
         elif algorithm == "expected_hessian":
-            query_best, utility = acquisition_function_expected_hessian(
+            query_best, utility, argmax = acquisition_function_expected_hessian(
                 self.reward_model, candidate_queries
             )
         elif algorithm == "bounded_coordinate_hessian":
-            query_best, utility = acquisition_function_bounded_coordinate_hessian(
+            (
+                query_best,
+                utility,
+                argmax,
+            ) = acquisition_function_bounded_coordinate_hessian(
                 self.reward_model, candidate_queries
             )
         elif algorithm == "map_convex_bound":
-            query_best, utility = acquisition_function_map_convex_bound(
+            query_best, utility, argmax = acquisition_function_map_convex_bound(
                 self.reward_model, candidate_queries
             )
         elif algorithm == "bounded_hessian_trace":
-            query_best, utility = acquisition_function_bounded_hessian_trace(
+            query_best, utility, argmax = acquisition_function_bounded_hessian_trace(
                 self.reward_model, candidate_queries
             )
         elif algorithm == "optimal_hessian":
-            query_best, utility = acquisition_function_optimal_hessian(
+            query_best, utility, argmax = acquisition_function_optimal_hessian(
                 self.reward_model, candidate_queries, theta=self.expert.true_parameter
             )
         elif algorithm == "map_hessian_trace":
-            query_best, utility = acquisition_function_map_hessian_trace(
+            query_best, utility, argmax = acquisition_function_map_hessian_trace(
                 self.reward_model, candidate_queries
             )
         elif algorithm == "map_confidence":
-            query_best, utility = acquisition_function_map_confidence(
+            query_best, utility, argmax = acquisition_function_map_confidence(
                 self.reward_model, candidate_queries
             )
         elif algorithm == "current_map_hessian":
-            query_best, utility = acquisition_function_current_map_hessian(
+            query_best, utility, argmax = acquisition_function_current_map_hessian(
                 self.reward_model, candidate_queries
             )
         else:
             raise NotImplementedError()
         y = self.query_expert(query_best.squeeze().tolist())
         self.counter += 1
-        if return_utility:
-            candidate_queries = [x.tobytes() for x in candidate_queries]
-            return (
-                query_best,
-                y,
-                dict(zip(candidate_queries, utility)),
-            )
-        else:
-            return query_best, y
+
+        idxs = get_pairs_from_list(range(len(features)))
+        queried_idx = idxs[argmax]
+        state_1 = states[queried_idx[0]].squeeze()
+        state_2 = states[queried_idx[1]].squeeze()
+
+        candidate_queries = [x.tobytes() for x in candidate_queries]
+        return (
+            query_best,
+            y,
+            dict(zip(candidate_queries, utility)),
+            (state_1, state_2),
+        )
 
 
 def simultate(
@@ -209,19 +216,22 @@ def simultate(
             a = policy[int(s[-1])]
             s, reward, done, info = env.step(a)
             r += reward
-            env.render("human")
-        plt.close("all")
+            # env.render("human")
+        # plt.close("all")
 
-        if step % 20 == 0:
-            env.plot_history()
-            plt.pause(0.1)
-            mlflow.log_figure(plt.gcf(), f"driver_{step}.pdf")
-            plt.close("all")
-
-        query_best, label, utility = agent.optimize_query(
+        query_best, label, utility, queried_states = agent.optimize_query(
             x_min=x_min, x_max=x_max, algorithm=algorithm
         )
-        agent.update_belief(query_best, label)
+        if step % 20 == 0:
+            env.plot_history()
+            # plt.pause(0.1)
+            mlflow.log_figure(plt.gcf(), f"driver_{step}.pdf")
+            fig_queries = env.plot_query_states_pair(
+                queried_states[0], queried_states[1]
+            )
+            mlflow.log_figure(fig_queries, f"queries_{step}.png")
+            agent.update_belief(query_best, label)
+            plt.close("all")
 
 
 if __name__ == "__main__":
