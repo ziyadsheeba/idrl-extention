@@ -296,7 +296,6 @@ def simultate(
         axs[2, 0].clear()
         axs[2, 1].clear()
 
-
         # Regret Viz
         axs[0, 0].set_title("Regret")
         axs[0, 0].set_xlabel("Steps")
