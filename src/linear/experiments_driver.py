@@ -88,6 +88,11 @@ class Agent:
     def get_parameters_estimate(self):
         return self.reward_model.get_parameters_estimate()
 
+    def sample_parameters(self, n_samples: int = 5):
+        return self.reward_model.sample_current_approximate_distribution(
+            n_samples=n_samples
+        )
+
     def optimize_query(
         self,
         x_min: float,
