@@ -304,10 +304,11 @@ class Driver:
         Returns:
             np.ndarray: The array of features.
         """
-        x, y, theta, v, *car_dist = query_state
-        assert len(car_dist) == len(
+        x, y, theta, v, *cars_pos = query_state
+        assert len(cars_pos) == 2 * len(
             self.cars
-        ), "car distances doesn't equal the number of cars"
+        ), "car coordinates doesn't equal the number of cars"
+        cars_pos = [cars_pos[i : i + 2] for i in range(0, len(cars_pos), 2)]
         off_street = int(np.abs(x) > self.roads[0].width / 2)
 
         b = 10000
@@ -323,8 +324,10 @@ class Driver:
         distance_to_other_car = 0
         b = 30
         a = 0.01
-        for dist in car_dist:
-            distance_to_other_car += np.exp(-b * (10 * dist**2) + b * a)
+        for car_coord in cars_pos:
+            distance_to_other_car += np.exp(
+                -b * (10 * ((car_coord[0] - x) ** 2 + (car_coord[1] - y) ** 2)) + b * a
+            )
 
         keeping_speed = -np.square(v - 0.4)
         target_location = -np.square(x - 0.17)
@@ -556,6 +559,77 @@ class Driver:
         if self.viewer:
             self.viewer.close()
             self.viewer = None
+
+    def plot_query_states_pair(self, query_state_1, query_state_2):
+        fig, axs = plt.subplots(2, figsize=(7, 14))
+
+        queries = (query_state_1, query_state_2)
+
+        for i, query in enumerate(queries):
+
+            x, y, angle, v, *cars_pos = query
+            assert len(cars_pos) == 2 * len(
+                self.cars
+            ), "car coordinates doesn't equal the number of cars"
+            cars_pos = [cars_pos[i : i + 2] for i in range(0, len(cars_pos), 2)]
+
+            axs[i].set_xlim(self.xlim[0], self.xlim[1])
+            axs[i].set_ylim(self.ylim[0], self.ylim[1])
+            axs[i].set_aspect("equal")
+            axs[i].grid(False)
+
+            grass = BboxImage(axs[i].bbox, interpolation="bicubic", zorder=-1000)
+
+            grass.set_data(GRASS)
+            axs[i].add_artist(grass)
+            for lane in self.lanes:
+                path = Path(
+                    [
+                        lane.start_pos
+                        - LANE_SCALE * lane.dir
+                        - lane.perp * lane.width * 0.5,
+                        lane.start_pos
+                        - LANE_SCALE * lane.dir
+                        + lane.perp * lane.width * 0.5,
+                        lane.end_pos
+                        + LANE_SCALE * lane.dir
+                        + lane.perp * lane.width * 0.5,
+                        lane.end_pos
+                        + LANE_SCALE * lane.dir
+                        - lane.perp * lane.width * 0.5,
+                        lane.start_pos
+                        - LANE_SCALE * lane.dir
+                        - lane.perp * lane.width * 0.5,
+                    ],
+                    [
+                        Path.MOVETO,
+                        Path.LINETO,
+                        Path.LINETO,
+                        Path.LINETO,
+                        Path.CLOSEPOLY,
+                    ],
+                )
+                axs[i].add_artist(
+                    PathPatch(
+                        path,
+                        facecolor=LANE_COLOR,
+                        lw=0.5,
+                        edgecolor=LANE_BCOLOR,
+                        zorder=-100,
+                    )
+                )
+            for j, car in enumerate(self.cars):
+                car_pos = cars_pos[j]
+                img = AxesImage(axs[i], interpolation="bicubic", zorder=20)
+                set_image(img, CAR_ROBOT, x=[car_pos[0], car_pos[1], np.pi / 2, 0])
+                axs[i].add_artist(img)
+
+            human = AxesImage(axs[i], interpolation=None, zorder=100)
+            set_image(human, CAR_AGENT, x=[x, y, angle, v])
+            axs[i].add_artist(human)
+            plt.axis("off")
+            plt.tight_layout()
+        return fig
 
     def plot_history(self):
         x_player = []

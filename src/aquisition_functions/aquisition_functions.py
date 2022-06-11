@@ -24,12 +24,18 @@ def acquisition_function_random(
     reward_model: LogisticRewardModel,
     candidate_queries: List[np.array],
     return_utility: bool = True,
+    return_argmax: bool = True,
 ) -> Union[np.ndarray, Tuple[np.ndarray, List]]:
+    argmax = np.random.randint(0, len(candidate_queries))
+    utility = [0] * len(candidate_queries)
+
+    return_vals = []
+    return_vals.append(candidate_queries[argmax])
     if return_utility:
-        utility = [0] * len(candidate_queries)
-        return candidate_queries[np.random.randint(0, len(candidate_queries))], utility
-    else:
-        return candidate_queries[np.random.randint(0, len(candidate_queries))]
+        return_vals.append(utility)
+    if return_argmax:
+        return_vals.append(argmax)
+    return return_vals
 
 
 def acquisition_function_bounded_hessian(
@@ -37,7 +43,8 @@ def acquisition_function_bounded_hessian(
     candidate_queries: List[np.array],
     return_utility: bool = True,
     n_jobs: int = 8,
-) -> Union[np.ndarray, Tuple[np.ndarray, List]]:
+    return_argmax: bool = True,
+) -> Union[np.ndarray, List]:
     """Uses the determinant of the bounded hessian to pick a query. The function is parallelized.
 
     Args:
@@ -59,10 +66,15 @@ def acquisition_function_bounded_hessian(
         delayed(_get_val)(x) for x in candidate_queries
     )
     argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
+    argmax = np.random.choice(argmax)
+
+    return_vals = []
+    return_vals.append(candidate_queries[argmax])
     if return_utility:
-        return candidate_queries[np.random.choice(argmax)], utility
-    else:
-        return candidate_queries[np.random.choice(argmax)]
+        return_vals.append(utility)
+    if return_argmax:
+        return_vals.append(argmax)
+    return return_vals
 
 
 def acquisition_function_optimal_hessian(
@@ -71,7 +83,8 @@ def acquisition_function_optimal_hessian(
     theta: np.ndarray,
     return_utility: bool = True,
     n_jobs: int = 8,
-) -> Union[np.ndarray, Tuple[np.ndarray, List]]:
+    return_argmax: bool = True,
+) -> Union[np.ndarray, List]:
     """Picks the query that minimizes determinant of the hessian inverse an the true parameter.
 
     Args:
@@ -92,10 +105,15 @@ def acquisition_function_optimal_hessian(
         delayed(_get_val)(x) for x in candidate_queries
     )
     argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
+    argmax = np.random.choice(argmax)
+
+    return_vals = []
+    return_vals.append(candidate_queries[argmax])
     if return_utility:
-        return candidate_queries[np.random.choice(argmax)], utility
-    else:
-        return candidate_queries[np.random.choice(argmax)]
+        return_vals.append(utility)
+    if return_argmax:
+        return_vals.append(argmax)
+    return return_vals
 
 
 def acquisition_function_map_confidence(
@@ -103,7 +121,8 @@ def acquisition_function_map_confidence(
     candidate_queries: List[np.array],
     confidence: float = 0.2,
     return_utility: bool = True,
-) -> Union[np.ndarray, Tuple[np.ndarray, List]]:
+    return_argmax: bool = True,
+) -> Union[np.ndarray, List]:
     """_summary_
 
     Args:
@@ -149,17 +168,22 @@ def acquisition_function_map_confidence(
         delayed(_get_val)(x) for x in candidate_queries
     )
     argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
+    argmax = np.random.choice(argmax)
+    return_vals = []
+    return_vals.append(candidate_queries[argmax])
     if return_utility:
-        return candidate_queries[np.random.choice(argmax)], utility
-    else:
-        return candidate_queries[np.random.choice(argmax)]
+        return_vals.append(utility)
+    if return_argmax:
+        return_vals.append(argmax)
+    return return_vals
 
 
 def acquisition_function_bounded_hessian_trace(
     reward_model: LinearLogisticRewardModel,
     candidate_queries: List[np.array],
     return_utility: bool = True,
-) -> Union[np.ndarray, Tuple[np.ndarray, List]]:
+    return_argmax: bool = True,
+) -> Union[np.ndarray, List]:
     """Picks the query that minimizes trace of the bounded hessian inverse.
 
     Args:
@@ -180,10 +204,14 @@ def acquisition_function_bounded_hessian_trace(
         val = np.linalg.norm(H_inv @ x.T) ** 2 / (1 + kappa * x @ H_inv @ x.T)
         utility.append(val.item())
     argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
+    argmax = np.random.choice(argmax)
+    return_vals = []
+    return_vals.append(candidate_queries[argmax])
     if return_utility:
-        return candidate_queries[np.random.choice(argmax)], utility
-    else:
-        return candidate_queries[np.random.choice(argmax)]
+        return_vals.append(utility)
+    if return_argmax:
+        return_vals.append(argmax)
+    return return_vals
 
 
 def acquisition_function_bounded_coordinate_hessian(
@@ -191,7 +219,8 @@ def acquisition_function_bounded_coordinate_hessian(
     candidate_queries: List[np.array],
     return_utility: bool = True,
     n_jobs: int = 8,
-) -> Union[np.ndarray, Tuple[np.ndarray, List]]:
+    return_argmax: bool = True,
+) -> Union[np.ndarray, List]:
     """Picks the query that minimizes determinant of the bounded hessian inverse.
 
     Args:
@@ -213,17 +242,22 @@ def acquisition_function_bounded_coordinate_hessian(
         delayed(_get_val)(x) for x in candidate_queries
     )
     argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
+    argmax = np.random.choice(argmax)
+    return_vals = []
+    return_vals.append(candidate_queries[argmax])
     if return_utility:
-        return candidate_queries[np.random.choice(argmax)], utility
-    else:
-        return candidate_queries[np.random.choice(argmax)]
+        return_vals.append(utility)
+    if return_argmax:
+        return_vals.append(argmax)
+    return return_vals
 
 
 def acquisition_function_map_hessian(
     reward_model: LinearLogisticRewardModel,
     candidate_queries: List[np.array],
     return_utility: bool = True,
-) -> Union[np.ndarray, Tuple[np.ndarray, List]]:
+    return_argmax: bool = True,
+) -> Union[np.ndarray, List]:
     """_summary_
 
     Args:
@@ -243,17 +277,23 @@ def acquisition_function_map_hessian(
         utility.append(min(utility_y))
 
     argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
+    argmax = np.random.choice(argmax)
+    return_vals = []
+    return_vals.append(candidate_queries[argmax])
     if return_utility:
-        return candidate_queries[np.random.choice(argmax)], utility
-    else:
-        return candidate_queries[np.random.choice(argmax)]
+        return_vals.append(utility)
+    if return_argmax:
+        return_vals.append(argmax)
+    return return_vals
 
 
 def acquisition_function_current_map_hessian(
     reward_model: LinearLogisticRewardModel,
     candidate_queries: List[np.array],
     return_utility: bool = True,
-) -> Union[np.ndarray, Tuple[np.ndarray, List]]:
+    return_argmax: bool = True,
+    n_jobs: int = 8,
+) -> Union[np.ndarray, List]:
     """_summary_
 
     Args:
@@ -275,17 +315,22 @@ def acquisition_function_current_map_hessian(
         delayed(_get_val)(x) for x in candidate_queries
     )
     argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
+    argmax = np.random.choice(argmax)
+    return_vals = []
+    return_vals.append(candidate_queries[argmax])
     if return_utility:
-        return candidate_queries[np.random.choice(argmax)], utility
-    else:
-        return candidate_queries[np.random.choice(argmax)]
+        return_vals.append(utility)
+    if return_argmax:
+        return_vals.append(argmax)
+    return return_vals
 
 
 def acquisition_function_map_hessian_trace(
     reward_model: LinearLogisticRewardModel,
     candidate_queries: List[np.array],
     return_utility: bool = True,
-) -> Union[np.ndarray, Tuple[np.ndarray, List]]:
+    return_argmax: bool = True,
+) -> Union[np.ndarray, List]:
     """_summary_
 
     Args:
@@ -305,10 +350,14 @@ def acquisition_function_map_hessian_trace(
         utility.append(min(utility_y))
 
     argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
+    argmax = np.random.choice(argmax)
+    return_vals = []
+    return_vals.append(candidate_queries[argmax])
     if return_utility:
-        return candidate_queries[np.random.choice(argmax)], utility
-    else:
-        return candidate_queries[np.random.choice(argmax)]
+        return_vals.append(utility)
+    if return_argmax:
+        return_vals.append(argmax)
+    return return_vals
 
 
 def acquisition_function_expected_hessian(
@@ -316,7 +365,8 @@ def acquisition_function_expected_hessian(
     candidate_queries: List[np.array],
     n_samples: int = 10,
     return_utility: bool = True,
-) -> Union[np.ndarray, Tuple[np.ndarray, List]]:
+    return_argmax: bool = True,
+) -> Union[np.ndarray, List]:
     """_summary_
 
     Args:
@@ -344,10 +394,15 @@ def acquisition_function_expected_hessian(
             label_utility[y] = -np.linalg.det(H_inv)
         utility.append(label_utility[min(label_utility, key=label_utility.get)])
     argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
+    argmax = np.random.choice(argmax)
+
+    return_vals = []
+    return_vals.append(candidate_queries[argmax])
     if return_utility:
-        return candidate_queries[np.random.choice(argmax)], utility
-    else:
-        return candidate_queries[np.random.choice(argmax)]
+        return_vals.append(utility)
+    if return_argmax:
+        return_vals.append(argmax)
+    return return_vals
 
 
 def acquisition_function_bald(
@@ -355,7 +410,8 @@ def acquisition_function_bald(
     candidate_queries: List[np.array],
     n_samples: int = 50,
     return_utility: bool = True,
-) -> Union[np.ndarray, Tuple[np.ndarray, List]]:
+    return_argmax: bool = True,
+) -> Union[np.ndarray, List]:
     """_summary_
 
     Args:
@@ -383,7 +439,11 @@ def acquisition_function_bald(
         expected_entropy = expected_entropy / n_samples
         utility.append(marginal_entropy - expected_entropy)
     argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
+    argmax = np.random.choice(argmax)
+    return_vals = []
+    return_vals.append(candidate_queries[argmax])
     if return_utility:
-        return candidate_queries[np.random.choice(argmax)], utility
-    else:
-        return candidate_queries[np.random.choice(argmax)]
+        return_vals.append(utility)
+    if return_argmax:
+        return_vals.append(argmax)
+    return return_vals

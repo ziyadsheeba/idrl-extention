@@ -153,51 +153,51 @@ class Agent:
         candidate_queries = get_grid_points(x_min=x_min, x_max=x_max, n_points=grid_res)
 
         if algorithm == "bounded_hessian":
-            query_best, utility = acquisition_function_bounded_hessian(
+            query_best, utility, *_ = acquisition_function_bounded_hessian(
                 self.reward_model, candidate_queries
             )
         elif algorithm == "map_hessian":
-            query_best, utility = acquisition_function_map_hessian(
+            query_best, utility, *_ = acquisition_function_map_hessian(
                 self.reward_model, candidate_queries
             )
         elif algorithm == "random":
-            query_best, utility = acquisition_function_random(
+            query_best, utility, *_ = acquisition_function_random(
                 self.reward_model, candidate_queries
             )
         elif algorithm == "bald":
-            query_best, utility = acquisition_function_bald(
+            query_best, utility, *_ = acquisition_function_bald(
                 self.reward_model, candidate_queries
             )
         elif algorithm == "expected_hessian":
-            query_best, utility = acquisition_function_expected_hessian(
+            query_best, utility, *_ = acquisition_function_expected_hessian(
                 self.reward_model, candidate_queries
             )
         elif algorithm == "bounded_coordinate_hessian":
-            query_best, utility = acquisition_function_bounded_coordinate_hessian(
+            query_best, utility, *_ = acquisition_function_bounded_coordinate_hessian(
                 self.reward_model, candidate_queries
             )
         elif algorithm == "map_convex_bound":
-            query_best, utility = acquisition_function_map_convex_bound(
+            query_best, utility, *_ = acquisition_function_map_convex_bound(
                 self.reward_model, candidate_queries
             )
         elif algorithm == "bounded_hessian_trace":
-            query_best, utility = acquisition_function_bounded_hessian_trace(
+            query_best, utility, *_ = acquisition_function_bounded_hessian_trace(
                 self.reward_model, candidate_queries
             )
         elif algorithm == "optimal_hessian":
-            query_best, utility = acquisition_function_optimal_hessian(
+            query_best, utility, *_ = acquisition_function_optimal_hessian(
                 self.reward_model, candidate_queries, theta=self.expert.true_parameter
             )
         elif algorithm == "map_hessian_trace":
-            query_best, utility = acquisition_function_map_hessian_trace(
+            query_best, utility, *_ = acquisition_function_map_hessian_trace(
                 self.reward_model, candidate_queries
             )
         elif algorithm == "map_confidence":
-            query_best, utility = acquisition_function_map_confidence(
+            query_best, utility, *_ = acquisition_function_map_confidence(
                 self.reward_model, candidate_queries
             )
         elif algorithm == "current_map_hessian":
-            query_best, utility = acquisition_function_current_map_hessian(
+            query_best, utility, *_ = acquisition_function_current_map_hessian(
                 self.reward_model, candidate_queries
             )
         else:
