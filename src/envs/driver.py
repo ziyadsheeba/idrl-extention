@@ -4,10 +4,12 @@ Driving environment based on:
 - https://github.com/Stanford-ILIAD/easy-active-learning/
 """
 
+import copy
 import os
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import scipy.optimize as opt
 from matplotlib.image import AxesImage, BboxImage
 from matplotlib.patches import PathPatch
@@ -16,6 +18,7 @@ from scipy.ndimage import rotate, zoom
 from scipy.special import expit
 
 from src.constants import DRIVER_METADATA
+from src.utils import get_pairs_from_list
 
 IMG_FOLDER = str(DRIVER_METADATA)
 GRASS = np.tile(plt.imread(os.path.join(IMG_FOLDER, "grass.png")), (5, 5, 1))
@@ -235,6 +238,41 @@ class Driver:
         reward = self._get_reward_for_state()
         self._update_history()
         return np.array(self.state + [self.time]), reward, done, dict()
+
+    def estimate_state_visitation(self, policy: np.ndarray, n_rollouts: int = 1):
+        svf = {}
+        for _ in range(n_rollouts):
+            done = False
+            s = self.reset()
+            while not done:
+                a = policy[int(s[-1])]
+                s, _, done, _ = self.step(a)
+                s_query = s[:-1].tolist()
+                for car in self.cars:
+                    x, y, *_ = car.state
+                    s_query.append(x)
+                    s_query.append(y)
+                s_arr = np.array(s_query).reshape(1, len(s_query))
+                s_str = s_arr.tobytes()
+                if s_str in svf:
+                    svf[s_str] += 1 / n_rollouts
+                else:
+                    svf[s_str] = 1 / n_rollouts
+        return svf
+
+    def estimate_pairwise_svf_mean(self, policies: list) -> dict:
+        svf = []
+        for policy in policies:
+            svf.append(self.estimate_state_visitation(policy, n_rollouts=1))
+        svf = pd.DataFrame(svf).T
+        svf = svf.fillna(0)
+        states = svf.index.tolist()
+        svf = [svf[column].to_numpy() for column in svf.columns]
+        svf = get_pairs_from_list(svf)
+        svf_diff = [a - b for a, b in svf]
+        svf_diff_mean = np.mean(svf_diff, axis=0)
+        states = np.array(list(map(np.frombuffer, states)))
+        return np.expand_dims(svf_diff_mean, axis=1), states
 
     def reset(self):
         self.state = self.initial_state

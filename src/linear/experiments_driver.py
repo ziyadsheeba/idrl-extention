@@ -52,8 +52,11 @@ plt.style.use("ggplot")
 
 from src.linear.driver_config import (
     ALGORITHM,
+    CANDIDATE_POLICY_UPDATE_RATE,
     DIMENSIONALITY,
+    NUM_CANDIDATE_POLICIES,
     PRIOR_VARIANCE_SCALE,
+    QUERY_LOGGING_RATE,
     SIMULATION_STEPS,
     THETA_NORM,
     X_MAX,
@@ -98,6 +101,8 @@ class Agent:
         x_min: float,
         x_max: float,
         algorithm: str = "map_hessian_trace",
+        v: np.ndarray = None,
+        candidate_states: np.ndarray = None,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """_summary_
 
@@ -106,9 +111,12 @@ class Agent:
         Returns:
             Tuple[np.ndarray, np.ndarray]: _description_
         """
-        states = sample_random_cube(
-            dim=len(x_min), x_min=x_min, x_max=x_max, n_points=70
-        )
+        if candidate_states is None:
+            states = sample_random_cube(
+                dim=len(x_min), x_min=x_min, x_max=x_max, n_points=70
+            )
+        else:
+            states = candidate_states
         features = [self.state_to_features(x.squeeze().tolist()) for x in states]
         feature_pairs = get_pairs_from_list(features)
         candidate_queries = [np.expand_dims(a - b, axis=0) for a, b in feature_pairs]
@@ -139,7 +147,7 @@ class Agent:
                 utility,
                 argmax,
             ) = acquisition_function_bounded_coordinate_hessian(
-                self.reward_model, candidate_queries
+                self.reward_model, candidate_queries, v=v
             )
         elif algorithm == "map_convex_bound":
             query_best, utility, argmax = acquisition_function_map_convex_bound(
@@ -163,7 +171,7 @@ class Agent:
             )
         elif algorithm == "current_map_hessian":
             query_best, utility, argmax = acquisition_function_current_map_hessian(
-                self.reward_model, candidate_queries
+                self.reward_model, candidate_queries, v=v
             )
         else:
             raise NotImplementedError()
@@ -192,6 +200,9 @@ def simultate(
     x_max: float,
     prior_variance_scale: float,
     simulation_steps: int,
+    num_candidate_policies: int,
+    candidate_policy_update_rate: int,
+    query_logging_rate: int,
 ):
     env = get_driver_target_velocity()
     optimal_policy, *_ = env.get_optimal_policy()
@@ -211,25 +222,44 @@ def simultate(
     )
 
     for step in tqdm(range(simulation_steps)):
-        policy, *_ = env.get_optimal_policy(
-            theta=reward_model.get_parameters_estimate().squeeze()
-        )
-        done = False
-        s = env.reset()
-        r = 0
-        while not done:
-            a = policy[int(s[-1])]
-            s, reward, done, info = env.step(a)
-            r += reward
-            # env.render("human")
-        # plt.close("all")
+
+        if step % candidate_policy_update_rate == 0:
+
+            # sample parameters
+            if num_candidate_policies > 1:
+                params = agent.sample_parameters(n_samples=num_candidate_policies)
+            else:
+                params = agent.get_parameters_estimate()
+
+            # get optimal policy wrt to each parameter
+            policies = []
+            for theta in params:
+                policy, *_ = env.get_optimal_policy(theta=theta)
+                policies.append(policy)
+
+            # get the mean state visitation difference between policies
+            svf_diff_mean, states = env.estimate_pairwise_svf_mean(policies)
+            features = [env.get_query_features(x.squeeze().tolist()) for x in states]
+            features = np.array(features)
+            v = features.T @ svf_diff_mean
 
         query_best, label, utility, queried_states = agent.optimize_query(
-            x_min=x_min, x_max=x_max, algorithm=algorithm
+            x_min=x_min, x_max=x_max, algorithm=algorithm, candidate_states=states, v=v
         )
-        if step % 20 == 0:
+        if step % query_logging_rate == 0:
+            # solve for the mean policy
+            theta = agent.get_parameters_estimate().squeeze()
+            policy, *_ = env.get_optimal_policy(theta=theta)
+
+            done = False
+            s = env.reset()
+            r = 0
+            while not done:
+                a = policy[int(s[-1])]
+                s, reward, done, info = env.step(a)
+                r += reward
+
             env.plot_history()
-            # plt.pause(0.1)
             mlflow.log_figure(plt.gcf(), f"driver_{step}.pdf")
             fig_queries = env.plot_query_states_pair(
                 queried_states[0], queried_states[1]
@@ -248,6 +278,7 @@ if __name__ == "__main__":
         mlflow.log_param("x_min", X_MIN)
         mlflow.log_param("x_max", X_MAX)
         mlflow.log_param("prior_variance_scale", PRIOR_VARIANCE_SCALE)
+        mlflow.log_param("canidate_policy_update_rate", CANDIDATE_POLICY_UPDATE_RATE)
 
         simultate(
             algorithm=ALGORITHM,
@@ -257,4 +288,7 @@ if __name__ == "__main__":
             x_max=X_MAX,
             prior_variance_scale=PRIOR_VARIANCE_SCALE,
             simulation_steps=SIMULATION_STEPS,
+            candidate_policy_update_rate=CANDIDATE_POLICY_UPDATE_RATE,
+            num_candidate_policies=NUM_CANDIDATE_POLICIES,
+            query_logging_rate=QUERY_LOGGING_RATE,
         )
