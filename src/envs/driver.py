@@ -160,7 +160,6 @@ class Driver:
         self.xlim = (-0.7, 0.7)
         # self.ylim = (-0.2, 0.8)
         self.ylim = (-0.2, 2)
-        print("state0", self.state)
 
         lane = Lane([0.0, -1.0], [0.0, 1.0], 0.17)
         road = Lane([0.0, -1.0], [0.0, 1.0], 0.17 * 3)
@@ -282,6 +281,16 @@ class Driver:
         self.history = []
         self._update_history()
         return np.array(self.state + [self.time])
+
+    def simulate(self, policy) -> float:
+        done = False
+        s = self.reset()
+        r = 0
+        while not done:
+            a = policy[int(s[-1])]
+            s, reward, done, info = self.step(a)
+            r += reward
+        return reward
 
     def get_reward_features(self, state=None):
         return self._get_features(state=state)
@@ -844,9 +853,14 @@ def get_constraint_weigths_threshold(constraint):
         return constraint_weights, threshold
 
 
-def get_driver(cars_trajectory, goal, penalty_lambda=0, constraint=None):
+def get_driver(
+    cars_trajectory, goal, penalty_lambda=0, reward_weights=None, constraint=None
+):
     cars = get_cars(cars_trajectory)
-    reward_weights = get_reward_weights(goal, penalty_lambda)
+    if reward_weights is None:
+        reward_weights = get_reward_weights(goal, penalty_lambda)
+    else:
+        reward_weights = reward_weights
     constraint_weights, threshold = get_constraint_weigths_threshold(constraint)
 
     if cars_trajectory == "blocked":
@@ -863,12 +877,17 @@ def get_driver(cars_trajectory, goal, penalty_lambda=0, constraint=None):
     )
 
 
-def get_driver_target_velocity(blocking_cars=False):
+def get_driver_target_velocity(blocking_cars=False, reward_weights=None):
     if blocking_cars:
         cars_trajectory = "blocked"
     else:
         cars_trajectory = "changing_lane"
-    return get_driver(cars_trajectory, "target_velocity", penalty_lambda=1)
+    return get_driver(
+        cars_trajectory,
+        "target_velocity",
+        penalty_lambda=1,
+        reward_weights=reward_weights,
+    )
 
 
 def get_driver_target_velocity_only_reward(blocking_cars=False):
