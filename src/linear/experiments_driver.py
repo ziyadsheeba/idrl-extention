@@ -268,7 +268,7 @@ def simultate(
             env.plot_history()
             mlflow.log_figure(plt.gcf(), f"driver_{step}.pdf")
             fig_queries = env.plot_query_states_pair(
-                queried_states[0], queried_states[1]
+                queried_states[0], queried_states[1], label
             )
 
             # log the latest comparison query

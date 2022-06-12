@@ -607,10 +607,13 @@ class Driver:
             self.viewer.close()
             self.viewer = None
 
-    def plot_query_states_pair(self, query_state_1, query_state_2):
+    def plot_query_states_pair(self, query_state_1, query_state_2, label):
         fig, axs = plt.subplots(2, figsize=(7, 14))
 
-        queries = (query_state_1, query_state_2)
+        if label == 1:
+            queries = (query_state_1, query_state_2)
+        else:
+            queries = (query_state_2, query_state_1)
 
         for i, query in enumerate(queries):
 
@@ -624,6 +627,8 @@ class Driver:
             axs[i].set_ylim(self.ylim[0], self.ylim[1])
             axs[i].set_aspect("equal")
             axs[i].grid(False)
+            axs[i].set_yticks([])
+            axs[i].set_xticks([])
 
             grass = BboxImage(axs[i].bbox, interpolation="bicubic", zorder=-1000)
 
@@ -671,9 +676,15 @@ class Driver:
                 set_image(img, CAR_ROBOT, x=[car_pos[0], car_pos[1], np.pi / 2, 0])
                 axs[i].add_artist(img)
 
+            if i == 0:
+                axs[i].set_title("Better")
+            else:
+                axs[i].set_title("Worse")
+
             human = AxesImage(axs[i], interpolation=None, zorder=100)
             set_image(human, CAR_AGENT, x=[x, y, angle, v])
             axs[i].add_artist(human)
+
             plt.axis("off")
             plt.tight_layout()
         return fig
