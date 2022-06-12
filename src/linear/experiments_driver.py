@@ -246,26 +246,33 @@ def simultate(
         query_best, label, utility, queried_states = agent.optimize_query(
             x_min=x_min, x_max=x_max, algorithm=algorithm, candidate_states=states, v=v
         )
+        agent.update_belief(query_best, label)
+
+        # compute regret
+        env_estimate = get_driver_target_velocity(
+            reward_weights=agent.get_parameters_estimate().squeeze()
+        )
+        estimated_policy, *_ = env_estimate.get_optimal_policy()
+        r_estimate = env_estimate.simulate(estimated_policy)
+        r_optimal = env_estimate.simulate(optimal_policy)
+        mlflow.log_metric("policy_regret", np.abs(r_estimate - r_optimal), step=step)
+
         if step % query_logging_rate == 0:
+
             # solve for the mean policy
             theta = agent.get_parameters_estimate().squeeze()
             policy, *_ = env.get_optimal_policy(theta=theta)
+            env.simulate(policy)
 
-            done = False
-            s = env.reset()
-            r = 0
-            while not done:
-                a = policy[int(s[-1])]
-                s, reward, done, info = env.step(a)
-                r += reward
-
+            # plot the history
             env.plot_history()
             mlflow.log_figure(plt.gcf(), f"driver_{step}.pdf")
             fig_queries = env.plot_query_states_pair(
                 queried_states[0], queried_states[1]
             )
+
+            # log the latest comparison query
             mlflow.log_figure(fig_queries, f"queries_{step}.png")
-            agent.update_belief(query_best, label)
             plt.close("all")
 
 
@@ -279,6 +286,7 @@ if __name__ == "__main__":
         mlflow.log_param("x_max", X_MAX)
         mlflow.log_param("prior_variance_scale", PRIOR_VARIANCE_SCALE)
         mlflow.log_param("canidate_policy_update_rate", CANDIDATE_POLICY_UPDATE_RATE)
+        mlflow.log_param("num_candidate_policies", NUM_CANDIDATE_POLICIES)
 
         simultate(
             algorithm=ALGORITHM,

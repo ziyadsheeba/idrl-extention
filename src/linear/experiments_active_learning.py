@@ -278,7 +278,7 @@ def simultate(
             if np.linalg.norm(theta_hat) > 0
             else 1
         )
-        mlflow.log_metric("cosine distance", cosine_distance)
+        mlflow.log_metric("cosine distance", cosine_distance, step=step)
         regret[step] = cosine_distance
         steps.append(step)
 

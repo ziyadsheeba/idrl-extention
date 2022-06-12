@@ -196,40 +196,40 @@ def acquisition_function_map_confidence(
     return return_vals
 
 
-# def acquisition_function_bounded_hessian_trace(
-#     reward_model: LinearLogisticRewardModel,
-#     candidate_queries: List[np.array],
-#     return_utility: bool = True,
-#     return_argmax: bool = True,
-# ) -> Union[np.ndarray, List]:
-#     """Picks the query that minimizes trace of the bounded hessian inverse.
+def acquisition_function_bounded_hessian_trace(
+    reward_model: LinearLogisticRewardModel,
+    candidate_queries: List[np.array],
+    return_utility: bool = True,
+    return_argmax: bool = True,
+) -> Union[np.ndarray, List]:
+    """Picks the query that minimizes trace of the bounded hessian inverse.
 
-#     Args:
-#         reward_model (LinearLogisticRewardModel): The reward model
-#         candidate_queries (List[np.array]): The candidate queries.
-#         return_utility (bool, optional): If the utility for each query should be returned. Defaults to True.
+    Args:
+        reward_model (LinearLogisticRewardModel): The reward model
+        candidate_queries (List[np.array]): The candidate queries.
+        return_utility (bool, optional): If the utility for each query should be returned. Defaults to True.
 
-#     Returns:
-#         Union[np.ndarray, Tuple[np.ndarray, List]: Optimal query or (optimal query, utility).
-#     """
-#     utility = []
-#     H_inv = reward_model.hessian_bound_inv
-#     for x in candidate_queries:
-#         if reward_model.kappa is None:
-#             kappa = 0.25
-#         else:
-#             kappa = reward_model.kappa
-#         val = np.linalg.norm(H_inv @ x.T) ** 2 / (1 + kappa * x @ H_inv @ x.T)
-#         utility.append(val.item())
-#     argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
-#     argmax = np.random.choice(argmax)
-#     return_vals = []
-#     return_vals.append(candidate_queries[argmax])
-#     if return_utility:
-#         return_vals.append(utility)
-#     if return_argmax:
-#         return_vals.append(argmax)
-#     return return_vals
+    Returns:
+        Union[np.ndarray, Tuple[np.ndarray, List]: Optimal query or (optimal query, utility).
+    """
+    utility = []
+    H_inv = reward_model.hessian_bound_inv
+    for x in candidate_queries:
+        if reward_model.kappa is None:
+            kappa = 0.25
+        else:
+            kappa = reward_model.kappa
+        val = np.linalg.norm(H_inv @ x.T) ** 2 / (1 + kappa * x @ H_inv @ x.T)
+        utility.append(val.item())
+    argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
+    argmax = np.random.choice(argmax)
+    return_vals = []
+    return_vals.append(candidate_queries[argmax])
+    if return_utility:
+        return_vals.append(utility)
+    if return_argmax:
+        return_vals.append(argmax)
+    return return_vals
 
 
 def acquisition_function_bounded_coordinate_hessian(
