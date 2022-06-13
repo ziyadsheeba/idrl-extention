@@ -62,6 +62,7 @@ from src.linear.driver_config import (
     QUERY_LOGGING_RATE,
     SIMULATION_STEPS,
     THETA_NORM,
+    TRAJECTORY_QUERY,
     USE_ROLLOUTS,
     X_MAX,
     X_MIN,
@@ -107,37 +108,34 @@ class Agent:
         num_query: int,
         algorithm: str = "map_hessian_trace",
         v: np.ndarray = None,
-        candidate_states: np.ndarray = None,
+        trajectories: bool = False,
+        rollout_queries: np.ndarray = None,
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """_summary_
-
-        Args:
-            algortihm (str, optional): _description_. Defaults to "bounded_hessian".
-        Returns:
-            Tuple[np.ndarray, np.ndarray]: _description_
-        """
-        if candidate_states is None:
+        if rollout_queries is None:
             states = sample_random_cube(
                 dim=len(x_min), x_min=x_min, x_max=x_max, n_points=num_query
             )
         else:
-            states = candidate_states
-            if states.shape[0] < num_query:
-                added_states = np.concatenate(
-                    sample_random_cube(
-                        dim=len(x_min),
-                        x_min=x_min,
-                        x_max=x_max,
-                        n_points=num_query - states.shape[0],
-                    )
-                )
-                states = np.vstack([states, added_states])
-            elif states.shape[0] > num_query:
-                states = states[
-                    np.random.choice(states.shape[0], num_query, replace=False), :
-                ]
-
-        features = [self.state_to_features(x.squeeze().tolist()) for x in states]
+            states = rollout_queries
+            # if states.shape[0] < num_query:
+            #     added_states = np.concatenate(
+            #         sample_random_cube(
+            #             dim=len(x_min),
+            #             x_min=x_min,
+            #             x_max=x_max,
+            #             n_points=num_query - states.shape[0],
+            #         )
+            #     )
+            #     states = np.vstack([states, added_states])
+            # elif states.shape[0] > num_query:
+            #     states = states[
+            #         np.random.choice(states.shape[0], num_query, replace=False), :
+            #     ]
+        if trajectories:
+            features = np.apply_along_axis(self.state_to_features, 1, states)
+            features = LinearLogisticRewardModel.from_trajectories_to_states(features)
+        else:
+            features = [self.state_to_features(x.squeeze().tolist()) for x in states]
         feature_pairs = get_pairs_from_list(features)
         candidate_queries = [np.expand_dims(a - b, axis=0) for a, b in feature_pairs]
 
@@ -200,15 +198,19 @@ class Agent:
 
         idxs = get_pairs_from_list(range(len(features)))
         queried_idx = idxs[argmax]
-        state_1 = states[queried_idx[0]].squeeze()
-        state_2 = states[queried_idx[1]].squeeze()
+        if trajectories:
+            query_best_1 = states[:, :, queried_idx[0]].squeeze()
+            query_best_2 = states[:, :, queried_idx[1]].squeeze()
+        else:
+            query_best_1 = states[queried_idx[0]].squeeze()
+            query_best_2 = states[queried_idx[1]].squeeze()
 
         candidate_queries = [x.tobytes() for x in candidate_queries]
         return (
             query_best,
             y,
             dict(zip(candidate_queries, utility)),
-            (state_1, state_2),
+            (query_best_1, query_best_2),
         )
 
 
@@ -226,6 +228,7 @@ def simultate(
     num_query: int,
     idrl: bool,
     use_rollouts: bool,
+    trajectory_query: bool,
 ):
     env = get_driver_target_velocity()
     optimal_policy, *_ = env.get_optimal_policy()
@@ -243,39 +246,49 @@ def simultate(
         reward_model=reward_model,
         state_space_dim=dimensionality,
     )
-
     for step in tqdm(range(simulation_steps)):
 
         if step % candidate_policy_update_rate == 0 and idrl:
             print("Computing Candidate Policies")
-            print(f"Estimated time: {5*num_candidate_policies/60} minutes")
-            # sample parameters
-            assert num_candidate_policies > 1
-            params = agent.sample_parameters(n_samples=num_candidate_policies)
+            print(f"Estimated time: {5.1*num_candidate_policies/60} minutes")
 
-            # get optimal policy wrt to each parameter
-            policies = []
-            for theta in params:
+            # sample parameters
+            assert num_candidate_policies > 1, "idrl requires more than 1 policy"
+            sampled_params = agent.sample_parameters(n_samples=num_candidate_policies)
+
+            # get optimal policy wrt to each sampled parameter
+            sampled_optimal_policies = []
+            for theta in sampled_params:
                 policy, *_ = env.get_optimal_policy(theta=theta)
-                policies.append(policy)
+                sampled_optimal_policies.append(policy)
 
             # get the mean state visitation difference between policies
-            svf_diff_mean, states = env.estimate_pairwise_svf_mean(policies)
-            features = [env.get_query_features(x.squeeze().tolist()) for x in states]
+            svf_diff_mean, state_support = env.estimate_pairwise_svf_mean(
+                sampled_optimal_policies
+            )
+            features = [
+                env.get_query_features(x.squeeze().tolist()) for x in state_support
+            ]
             features = np.array(features)
             v = features.T @ svf_diff_mean
         else:
             v = None
-            states = None
-        if not use_rollouts:
-            states = None
+
+        if trajectory_query:
+            random_policies = env.sample_random_policies(n_policies=num_query)
+            rollout_queries = env.get_query_trajectories(random_policies)
+
+        else:
+            rollout_queries = None
+
         query_best, label, utility, queried_states = agent.optimize_query(
             x_min=x_min,
             x_max=x_max,
             algorithm=algorithm,
-            candidate_states=states,
             v=v,
             num_query=num_query,
+            rollout_queries=rollout_queries,
+            trajectories=trajectory_query,
         )
         agent.update_belief(query_best, label)
 
@@ -298,12 +311,19 @@ def simultate(
             # plot the history
             env.plot_history()
             mlflow.log_figure(plt.gcf(), f"driver_{step}.pdf")
-            fig_queries = env.plot_query_states_pair(
-                queried_states[0], queried_states[1], label
-            )
 
             # log the latest comparison query
-            mlflow.log_figure(fig_queries, f"queries_{step}.png")
+            if trajectory_query:
+                fig_queries = env.plot_query_trajectory_pair(
+                    queried_states[0], queried_states[1], label
+                )
+                mlflow.log_figure(fig_queries, f"queries_{step}.png")
+
+            else:
+                fig_queries = env.plot_query_states_pair(
+                    queried_states[0], queried_states[1], label
+                )
+                mlflow.log_figure(fig_queries, f"queries_{step}.png")
             plt.close("all")
 
 
@@ -320,6 +340,7 @@ if __name__ == "__main__":
         mlflow.log_param("num_candidate_policies", NUM_CANDIDATE_POLICIES)
         mlflow.log_param("idrl", IDRL)
         mlflow.log_param("use_rollouts", USE_ROLLOUTS)
+        mlflow.log_param("use_trajectories", TRAJECTORY_QUERY)
 
         simultate(
             algorithm=ALGORITHM,
@@ -335,4 +356,5 @@ if __name__ == "__main__":
             num_query=NUM_QUERY,
             idrl=IDRL,
             use_rollouts=USE_ROLLOUTS,
+            trajectory_query=TRAJECTORY_QUERY,
         )

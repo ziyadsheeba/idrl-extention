@@ -454,6 +454,19 @@ class LinearLogisticRewardModel(LogisticRewardModel):
         else:
             return kappa
 
+    @classmethod
+    def from_trajectories_to_states(cls, trajectories: np.ndarray) -> np.ndarray:
+        """Transforms trajectories to effective states.
+
+        Args:
+            trajectories (np.ndarray): A 3d array, (row, columns) is a trajectory.
+
+        Returns:
+            np.ndarray: A 2d array of the effective states, (n_states, dim)
+        """
+        states = np.sum(trajectories, axis=0).T
+        return states
+
     def get_parameters_estimate(self):
         return self.approximate_posterior.get_mean()
 
