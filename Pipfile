@@ -26,6 +26,7 @@ cvxpy = "*"
 pandas = "*"
 dvc = "*"
 mlflow = "*"
+loky = "*"
 
 [dev-packages]
 

@@ -19,8 +19,11 @@ X_MAX = [
     0.2,  # y distance
 ]
 PRIOR_VARIANCE_SCALE = 1
-ALGORITHM = "current_map_hessian"
+ALGORITHM = "bounded_coordinate_hessian"
 SIMULATION_STEPS = 1000
-NUM_CANDIDATE_POLICIES = 5
-CANDIDATE_POLICY_UPDATE_RATE = 1
+NUM_CANDIDATE_POLICIES = 25
+NUM_QUERY = 200  # number of states, the number of queries will be n*(n-1)/4
+CANDIDATE_POLICY_UPDATE_RATE = 50
 QUERY_LOGGING_RATE = 5
+IDRL = True
+USE_ROLLOUTS = False

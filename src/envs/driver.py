@@ -18,7 +18,7 @@ from scipy.ndimage import rotate, zoom
 from scipy.special import expit
 
 from src.constants import DRIVER_METADATA
-from src.utils import get_pairs_from_list
+from src.utils import get_pairs_from_list, timeit
 
 IMG_FOLDER = str(DRIVER_METADATA)
 GRASS = np.tile(plt.imread(os.path.join(IMG_FOLDER, "grass.png")), (5, 5, 1))

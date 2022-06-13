@@ -1,9 +1,12 @@
 import copy
+import multiprocessing
+from multiprocessing import Pool
 from typing import List, Tuple, Union
 
 import cvxpy as cp
 import numpy as np
 from joblib import Parallel, delayed
+from loky import wrap_non_picklable_objects
 from scipy.special import expit
 from scipy.stats import chi2
 
@@ -17,6 +20,7 @@ from src.utils import (
     bernoulli_entropy,
     matrix_inverse,
     multivariate_normal_sample,
+    timeit,
 )
 
 
@@ -359,7 +363,7 @@ def acquisition_function_current_map_hessian(
             )
             return val
 
-    utility = Parallel(n_jobs=n_jobs, backend="multiprocessing")(
+    utility = Parallel(n_jobs=-1, backend="multiprocessing")(
         delayed(_get_val)(x) for x in candidate_queries
     )
     argmax = argmax_over_index_set(utility, range(len(candidate_queries)))

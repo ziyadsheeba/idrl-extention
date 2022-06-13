@@ -46,6 +46,7 @@ from src.utils import (
     timeit,
 )
 
+os.system("taskset -p 0xfffff %d" % os.getpid())
 matplotlib.use("Qt5Agg")
 matplotlib.use("Agg")
 plt.style.use("ggplot")
@@ -54,11 +55,14 @@ from src.linear.driver_config import (
     ALGORITHM,
     CANDIDATE_POLICY_UPDATE_RATE,
     DIMENSIONALITY,
+    IDRL,
     NUM_CANDIDATE_POLICIES,
+    NUM_QUERY,
     PRIOR_VARIANCE_SCALE,
     QUERY_LOGGING_RATE,
     SIMULATION_STEPS,
     THETA_NORM,
+    USE_ROLLOUTS,
     X_MAX,
     X_MIN,
 )
@@ -89,7 +93,7 @@ class Agent:
         self.reward_model.update(x, y)
 
     def get_parameters_estimate(self):
-        return self.reward_model.get_parameters_estimate()
+        return self.reward_model.get_parameters_estimate().squeeze()
 
     def sample_parameters(self, n_samples: int = 5):
         return self.reward_model.sample_current_approximate_distribution(
@@ -100,6 +104,7 @@ class Agent:
         self,
         x_min: float,
         x_max: float,
+        num_query: int,
         algorithm: str = "map_hessian_trace",
         v: np.ndarray = None,
         candidate_states: np.ndarray = None,
@@ -113,10 +118,25 @@ class Agent:
         """
         if candidate_states is None:
             states = sample_random_cube(
-                dim=len(x_min), x_min=x_min, x_max=x_max, n_points=70
+                dim=len(x_min), x_min=x_min, x_max=x_max, n_points=num_query
             )
         else:
             states = candidate_states
+            if states.shape[0] < num_query:
+                added_states = np.concatenate(
+                    sample_random_cube(
+                        dim=len(x_min),
+                        x_min=x_min,
+                        x_max=x_max,
+                        n_points=num_query - states.shape[0],
+                    )
+                )
+                states = np.vstack([states, added_states])
+            elif states.shape[0] > num_query:
+                states = states[
+                    np.random.choice(states.shape[0], num_query, replace=False), :
+                ]
+
         features = [self.state_to_features(x.squeeze().tolist()) for x in states]
         feature_pairs = get_pairs_from_list(features)
         candidate_queries = [np.expand_dims(a - b, axis=0) for a, b in feature_pairs]
@@ -203,6 +223,9 @@ def simultate(
     num_candidate_policies: int,
     candidate_policy_update_rate: int,
     query_logging_rate: int,
+    num_query: int,
+    idrl: bool,
+    use_rollouts: bool,
 ):
     env = get_driver_target_velocity()
     optimal_policy, *_ = env.get_optimal_policy()
@@ -223,13 +246,12 @@ def simultate(
 
     for step in tqdm(range(simulation_steps)):
 
-        if step % candidate_policy_update_rate == 0:
-
+        if step % candidate_policy_update_rate == 0 and idrl:
+            print("Computing Candidate Policies")
+            print(f"Estimated time: {5*num_candidate_policies/60} minutes")
             # sample parameters
-            if num_candidate_policies > 1:
-                params = agent.sample_parameters(n_samples=num_candidate_policies)
-            else:
-                params = agent.get_parameters_estimate()
+            assert num_candidate_policies > 1
+            params = agent.sample_parameters(n_samples=num_candidate_policies)
 
             # get optimal policy wrt to each parameter
             policies = []
@@ -242,9 +264,18 @@ def simultate(
             features = [env.get_query_features(x.squeeze().tolist()) for x in states]
             features = np.array(features)
             v = features.T @ svf_diff_mean
-
+        else:
+            v = None
+            states = None
+        if not use_rollouts:
+            states = None
         query_best, label, utility, queried_states = agent.optimize_query(
-            x_min=x_min, x_max=x_max, algorithm=algorithm, candidate_states=states, v=v
+            x_min=x_min,
+            x_max=x_max,
+            algorithm=algorithm,
+            candidate_states=states,
+            v=v,
+            num_query=num_query,
         )
         agent.update_belief(query_best, label)
 
@@ -287,6 +318,8 @@ if __name__ == "__main__":
         mlflow.log_param("prior_variance_scale", PRIOR_VARIANCE_SCALE)
         mlflow.log_param("canidate_policy_update_rate", CANDIDATE_POLICY_UPDATE_RATE)
         mlflow.log_param("num_candidate_policies", NUM_CANDIDATE_POLICIES)
+        mlflow.log_param("idrl", IDRL)
+        mlflow.log_param("use_rollouts", USE_ROLLOUTS)
 
         simultate(
             algorithm=ALGORITHM,
@@ -299,4 +332,7 @@ if __name__ == "__main__":
             candidate_policy_update_rate=CANDIDATE_POLICY_UPDATE_RATE,
             num_candidate_policies=NUM_CANDIDATE_POLICIES,
             query_logging_rate=QUERY_LOGGING_RATE,
+            num_query=NUM_QUERY,
+            idrl=IDRL,
+            use_rollouts=USE_ROLLOUTS,
         )
