@@ -8,7 +8,10 @@ PROJECT_PATH = constants_path.parent.parent
 EXPERIMENTS_PATH = PROJECT_PATH / "experiments"
 
 # Env Metadata Paths
-DRIVER_METADATA = PROJECT_PATH / "env_metadata" / "driver"
+DRIVER_METADATA_PATH = PROJECT_PATH / "env_metadata" / "driver"
+
+# Env Precomputed Policies
+DRIVER_PRECOMPUTED_POLICIES_PATH = PROJECT_PATH / "env_policies" / "driver"
 
 # source: https://gist.github.com/thriveth/8560036
 color_cycle = [

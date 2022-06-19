@@ -1,13 +1,13 @@
 """Experiments Config 
 """
-ALGORITHM = "bounded_coordinate_hessian"
+ALGORITHM = "current_map_hessian"
 DIMENSIONALITY = 2
 THETA_NORM = 2
 EXPERT_SCALE = 1
 X_MIN = -3
 X_MAX = 3
-GRID_RES = 70j
-PRIOR_VARIANCE_SCALE = 1
+N_SAMPLES = 300000
+PRIOR_VARIANCE_SCALE = 10000
 PLOT = False
 SEED = 10
 SIMULATION_STEPS = 1000

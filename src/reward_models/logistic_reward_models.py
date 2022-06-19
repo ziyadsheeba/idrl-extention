@@ -402,9 +402,13 @@ class LinearLogisticRewardModel(LogisticRewardModel):
         self, X: np.ndarray, return_kappa_list: bool = False
     ) -> float:
         def _get_kappa(x) -> float:
-            theta_i = self.param_norm * x.T / np.linalg.norm(x)
+            theta_i = (
+                self.param_norm * x.T / np.linalg.norm(x)
+                if np.linalg.norm(x) > 1e-9
+                else x.T
+            )
             kappa = expit(x @ theta_i) * (1 - expit(x @ theta_i))
-            return kappa[0][0]
+            return kappa.item()
 
         kappa = np.Inf
         kappas = []
@@ -453,6 +457,19 @@ class LinearLogisticRewardModel(LogisticRewardModel):
             return kappas
         else:
             return kappa
+
+    @classmethod
+    def from_trajectories_to_states(cls, trajectories: np.ndarray) -> np.ndarray:
+        """Transforms trajectories to effective states.
+
+        Args:
+            trajectories (np.ndarray): A 3d array, (row, columns) is a trajectory.
+
+        Returns:
+            np.ndarray: A 2d array of the effective states, (n_states, dim)
+        """
+        states = np.sum(trajectories, axis=0).T
+        return states
 
     def get_parameters_estimate(self):
         return self.approximate_posterior.get_mean()

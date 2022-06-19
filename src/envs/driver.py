@@ -17,10 +17,10 @@ from matplotlib.path import Path
 from scipy.ndimage import rotate, zoom
 from scipy.special import expit
 
-from src.constants import DRIVER_METADATA
+from src.constants import DRIVER_METADATA_PATH
 from src.utils import get_pairs_from_list, timeit
 
-IMG_FOLDER = str(DRIVER_METADATA)
+IMG_FOLDER = str(DRIVER_METADATA_PATH)
 GRASS = np.tile(plt.imread(os.path.join(IMG_FOLDER, "grass.png")), (5, 5, 1))
 
 CAR = {
@@ -600,7 +600,7 @@ class Driver:
                 plt.tight_layout()
                 plt.pause(0.05)
                 plt.clf()
-        return None
+        return fig, ax
 
     def close(self):
         if self.viewer:
@@ -688,6 +688,91 @@ class Driver:
             plt.axis("off")
             plt.tight_layout()
         return fig
+
+    def plot_query_trajectory_pair(self, query_trajectory_1, query_trajectory_2, label):
+        fig, ax = self.render("human_static")
+        ax.plot(
+            query_trajectory_1[:, 0],
+            query_trajectory_1[:, 1],
+            zorder=10,
+            linestyle="-",
+            color="green" if label == 1 else "red",
+            linewidth=2.5,
+            marker="o",
+            markersize=8,
+            markevery=1,
+        )
+        ax.plot(
+            query_trajectory_2[:, 0],
+            query_trajectory_2[:, 1],
+            zorder=10,
+            linestyle="-",
+            color="green" if label == 0 else "red",
+            linewidth=2.5,
+            marker="o",
+            markersize=8,
+            markevery=1,
+        )
+        for i in range(4, query_trajectory_1.shape[1], 2):
+
+            ax.plot(
+                query_trajectory_1[:, i],
+                query_trajectory_1[:, i + 1],
+                zorder=10,
+                linestyle="-",
+                color=COLOR_ROBOT,
+                linewidth=2.5,
+                marker="o",
+                markersize=8,
+                markevery=1,
+            )
+
+        return fig
+
+    def sample_random_policies(self, n_policies: int) -> list:
+        """samples random policies.
+
+        Args:
+            n_policies (int): number of policies to sample
+
+        Returns:
+            list: list of policies.
+        """
+        policies = [
+            np.random.uniform(
+                low=self.action_min,
+                high=self.action_max,
+                size=(self.episode_length, len(self.action_min)),
+            )
+            for _ in range(n_policies)
+        ]
+        return policies
+
+    def get_queries_from_policies(
+        self, policies: list, n_rollouts: int = 1, return_trajectories: bool = True
+    ):
+        trajectories = []
+        for policy in policies:
+            for i in range(n_rollouts):
+                done = False
+                s = self.reset()
+                r = 0
+                states = []
+                while not done:
+                    a = policy[int(s[-1])]
+                    s, reward, done, info = self.step(a)
+                    r += reward
+                    s_query = s[:-1].tolist()
+                    for car in self.cars:
+                        x, y, *_ = car.state
+                        s_query.append(x)
+                        s_query.append(y)
+                    states.append(np.array(s_query))
+                trajectories.append(np.vstack(states))
+        if return_trajectories:
+            return np.stack(trajectories, axis=2)
+        else:
+            return np.unique(np.concatenate(trajectories), axis=0)
 
     def plot_history(self):
         x_player = []

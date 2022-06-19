@@ -44,7 +44,38 @@ def sample_random_cube(
     Returns:
         list: _description_
     """
-    positions = np.random.uniform(low=x_min, high=x_max, size=(n_points, dim)).round(2)
+    positions = np.random.uniform(low=x_min, high=x_max, size=(n_points, dim))
+    positions = np.unique(positions, axis=0).round(2)
+    positions = [
+        np.expand_dims(positions[i, :], axis=0) for i in range(positions.shape[0])
+    ]
+    return positions
+
+
+def sample_random_sphere(
+    dim: int,
+    x_min: Union[list, float],
+    x_max: Union[list, float],
+    n_points: int = 2500,
+    r: int = 1,
+) -> list:
+    """Generates a random vector uniformly sampled from a hypercube.
+
+    Args:
+        dim (int): Dimension
+        x_min (float): lower bound on each coordinate.
+        x_max (float): upper bound on each coordinate
+        n_points (int, optional): number of points to generate. Defaults to 2500.
+
+    Returns:
+        list: _description_
+    """
+    positions = np.random.uniform(low=x_min, high=x_max, size=(n_points, dim))
+
+    def _normalize(x):
+        return r * x / np.linalg.norm(x)
+
+    positions = np.apply_along_axis(_normalize, 1, positions)
     positions = np.unique(positions, axis=0)
     positions = [
         np.expand_dims(positions[i, :], axis=0) for i in range(positions.shape[0])
