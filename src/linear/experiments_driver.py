@@ -230,6 +230,10 @@ def simultate(
     env = get_driver_target_velocity()
     optimal_policy, *_ = env.get_optimal_policy()
     policy_regret = {}
+    cosine_similarity = {}
+
+    # true reward parameter
+    theta_true = env.reward_w
 
     # Initialize the reward model
     reward_model = LinearLogisticRewardModel(
@@ -312,22 +316,28 @@ def simultate(
             )
             agent.update_belief(query_best, label)
 
-            # compute policy_regret
-            env_estimate = get_driver_target_velocity(
-                reward_weights=agent.get_parameters_estimate().squeeze()
-            )
+            # compute policy_regret and cosine similarity
+            theta_hat = agent.get_parameters_estimate().squeeze()
+            env_estimate = get_driver_target_velocity(reward_weights=theta_hat)
             estimated_policy, *_ = env_estimate.get_optimal_policy()
             r_estimate = env_estimate.simulate(estimated_policy)
             r_optimal = env_estimate.simulate(optimal_policy)
             policy_regret[step] = np.abs(r_estimate - r_optimal)
+            cosine_similarity[step] = (
+                spatial.distance.cosine(theta_true, theta_hat)
+                if np.linalg.norm(theta_hat) > 0
+                else 1
+            )
+
             mlflow.log_metric("policy_regret", policy_regret[step], step=step)
+            mlflow.log_metric("cosine_similarity", cosine_similarity[step], step=step)
+
             steps.set_description(f"Policy Regret {policy_regret[step]}")
 
             if step % query_logging_rate == 0:
 
                 # solve for the mean policy
-                theta = agent.get_parameters_estimate().squeeze()
-                policy, *_ = env.get_optimal_policy(theta=theta)
+                policy, *_ = env.get_optimal_policy(theta=theta_hat)
                 env.simulate(policy)
 
                 # plot the history
@@ -348,6 +358,7 @@ def simultate(
                     mlflow.log_figure(fig_queries, f"queries_{step}.png")
                 plt.close("all")
     mlflow.log_dict(policy_regret, "policy_regret.json")
+    mlflow.log_dict(coisne)
 
 
 if __name__ == "__main__":
