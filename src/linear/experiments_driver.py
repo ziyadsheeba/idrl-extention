@@ -2,6 +2,7 @@ import copy
 import json
 import multiprocessing
 import os
+import pickle
 import time
 from typing import Callable, List, Tuple
 
@@ -19,6 +20,7 @@ from tqdm import tqdm
 
 from src.aquisition_functions.aquisition_functions import (
     acquisition_function_bald,
+    acquisition_function_bounded_ball_map,
     acquisition_function_bounded_coordinate_hessian,
     acquisition_function_bounded_hessian,
     acquisition_function_bounded_hessian_trace,
@@ -30,7 +32,7 @@ from src.aquisition_functions.aquisition_functions import (
     acquisition_function_optimal_hessian,
     acquisition_function_random,
 )
-from src.constants import EXPERIMENTS_PATH
+from src.constants import DRIVER_PRECOMPUTED_POLICIES_PATH, EXPERIMENTS_PATH
 from src.envs.driver import get_driver_target_velocity
 from src.reward_models.logistic_reward_models import (
     LinearLogisticRewardModel,
@@ -106,36 +108,27 @@ class Agent:
         x_min: float,
         x_max: float,
         num_query: int,
-        algorithm: str = "map_hessian_trace",
+        algorithm: str = "bounded_coordinate_hessian",
         v: np.ndarray = None,
         trajectories: bool = False,
         rollout_queries: np.ndarray = None,
     ) -> Tuple[np.ndarray, np.ndarray]:
+
         if rollout_queries is None:
-            states = sample_random_cube(
+            assert (
+                trajectories == False
+            ), "Must provide rollout trajecterories for trajectory comparisons"
+            rollout_queries = sample_random_cube(
                 dim=len(x_min), x_min=x_min, x_max=x_max, n_points=num_query
             )
-        else:
-            states = rollout_queries
-            # if states.shape[0] < num_query:
-            #     added_states = np.concatenate(
-            #         sample_random_cube(
-            #             dim=len(x_min),
-            #             x_min=x_min,
-            #             x_max=x_max,
-            #             n_points=num_query - states.shape[0],
-            #         )
-            #     )
-            #     states = np.vstack([states, added_states])
-            # elif states.shape[0] > num_query:
-            #     states = states[
-            #         np.random.choice(states.shape[0], num_query, replace=False), :
-            #     ]
+
         if trajectories:
-            features = np.apply_along_axis(self.state_to_features, 1, states)
+            features = np.apply_along_axis(self.state_to_features, 1, rollout_queries)
             features = LinearLogisticRewardModel.from_trajectories_to_states(features)
         else:
-            features = [self.state_to_features(x.squeeze().tolist()) for x in states]
+            features = [
+                self.state_to_features(x.squeeze().tolist()) for x in rollout_queries
+            ]
         feature_pairs = get_pairs_from_list(features)
         candidate_queries = [np.expand_dims(a - b, axis=0) for a, b in feature_pairs]
 
@@ -148,7 +141,7 @@ class Agent:
                 self.reward_model, candidate_queries
             )
         elif algorithm == "random":
-            query_best, utility = acquisition_function_random(
+            query_best, utility, argmax = acquisition_function_random(
                 self.reward_model, candidate_queries
             )
         elif algorithm == "bald":
@@ -191,6 +184,10 @@ class Agent:
             query_best, utility, argmax = acquisition_function_current_map_hessian(
                 self.reward_model, candidate_queries, v=v
             )
+        elif algorithm == "bounded_ball_map":
+            query_best, utility, argmax = acquisition_function_bounded_ball_map(
+                self.reward_model, candidate_queries, v=v
+            )
         else:
             raise NotImplementedError()
         y = self.query_expert(query_best.squeeze().tolist())
@@ -199,11 +196,11 @@ class Agent:
         idxs = get_pairs_from_list(range(len(features)))
         queried_idx = idxs[argmax]
         if trajectories:
-            query_best_1 = states[:, :, queried_idx[0]].squeeze()
-            query_best_2 = states[:, :, queried_idx[1]].squeeze()
+            query_best_1 = rollout_queries[:, :, queried_idx[0]].squeeze()
+            query_best_2 = rollout_queries[:, :, queried_idx[1]].squeeze()
         else:
-            query_best_1 = states[queried_idx[0]].squeeze()
-            query_best_2 = states[queried_idx[1]].squeeze()
+            query_best_1 = rollout_queries[queried_idx[0]].squeeze()
+            query_best_2 = rollout_queries[queried_idx[1]].squeeze()
 
         candidate_queries = [x.tobytes() for x in candidate_queries]
         return (
@@ -232,6 +229,7 @@ def simultate(
 ):
     env = get_driver_target_velocity()
     optimal_policy, *_ = env.get_optimal_policy()
+    policy_regret = {}
 
     # Initialize the reward model
     reward_model = LinearLogisticRewardModel(
@@ -246,85 +244,110 @@ def simultate(
         reward_model=reward_model,
         state_space_dim=dimensionality,
     )
-    for step in tqdm(range(simulation_steps)):
+    # load pre-computed policies
+    with open(f"{str(DRIVER_PRECOMPUTED_POLICIES_PATH)}/policies.pkl", "rb") as f:
+        policies = pickle.load(f)
 
-        if step % candidate_policy_update_rate == 0 and idrl:
-            print("Computing Candidate Policies")
-            print(f"Estimated time: {5.1*num_candidate_policies/60} minutes")
+    with tqdm(range(simulation_steps), unit="step") as steps:
 
-            # sample parameters
-            assert num_candidate_policies > 1, "idrl requires more than 1 policy"
-            sampled_params = agent.sample_parameters(n_samples=num_candidate_policies)
+        for step in steps:
 
-            # get optimal policy wrt to each sampled parameter
-            sampled_optimal_policies = []
-            for theta in sampled_params:
-                policy, *_ = env.get_optimal_policy(theta=theta)
-                sampled_optimal_policies.append(policy)
+            if step % candidate_policy_update_rate == 0 and idrl:
+                print("Computing Candidate Policies")
+                print(f"Estimated time: {5.1*num_candidate_policies/60} minutes")
 
-            # get the mean state visitation difference between policies
-            svf_diff_mean, state_support = env.estimate_pairwise_svf_mean(
-                sampled_optimal_policies
-            )
-            features = [
-                env.get_query_features(x.squeeze().tolist()) for x in state_support
-            ]
-            features = np.array(features)
-            v = features.T @ svf_diff_mean
-        else:
-            v = None
-
-        if trajectory_query:
-            random_policies = env.sample_random_policies(n_policies=num_query)
-            rollout_queries = env.get_query_trajectories(random_policies)
-
-        else:
-            rollout_queries = None
-
-        query_best, label, utility, queried_states = agent.optimize_query(
-            x_min=x_min,
-            x_max=x_max,
-            algorithm=algorithm,
-            v=v,
-            num_query=num_query,
-            rollout_queries=rollout_queries,
-            trajectories=trajectory_query,
-        )
-        agent.update_belief(query_best, label)
-
-        # compute regret
-        env_estimate = get_driver_target_velocity(
-            reward_weights=agent.get_parameters_estimate().squeeze()
-        )
-        estimated_policy, *_ = env_estimate.get_optimal_policy()
-        r_estimate = env_estimate.simulate(estimated_policy)
-        r_optimal = env_estimate.simulate(optimal_policy)
-        mlflow.log_metric("policy_regret", np.abs(r_estimate - r_optimal), step=step)
-
-        if step % query_logging_rate == 0:
-
-            # solve for the mean policy
-            theta = agent.get_parameters_estimate().squeeze()
-            policy, *_ = env.get_optimal_policy(theta=theta)
-            env.simulate(policy)
-
-            # plot the history
-            env.plot_history()
-            mlflow.log_figure(plt.gcf(), f"driver_{step}.pdf")
-
-            # log the latest comparison query
-            if trajectory_query:
-                fig_queries = env.plot_query_trajectory_pair(
-                    queried_states[0], queried_states[1], label
+                # sample parameters
+                assert num_candidate_policies > 1, "idrl requires more than 1 policy"
+                sampled_params = agent.sample_parameters(
+                    n_samples=num_candidate_policies
                 )
-                mlflow.log_figure(fig_queries, f"queries_{step}.png")
 
+                # get optimal policy wrt to each sampled parameter
+                sampled_optimal_policies = []
+                for theta in sampled_params:
+                    policy, *_ = env.get_optimal_policy(theta=theta)
+                    sampled_optimal_policies.append(policy)
+
+                # get the mean state visitation difference between policies
+                svf_diff_mean, state_support = env.estimate_pairwise_svf_mean(
+                    sampled_optimal_policies
+                )
+                features = [
+                    env.get_query_features(x.squeeze().tolist()) for x in state_support
+                ]
+                features = np.array(features)
+                v = features.T @ svf_diff_mean
             else:
-                fig_queries = env.plot_query_states_pair(
-                    queried_states[0], queried_states[1], label
+                v = None
+
+            if trajectory_query:
+                # sample the precomputed policies
+                if num_query > len(policies):
+                    raise ValueError(
+                        "The number of queries cannot be met. Increase the number of precomputed policies"
+                    )
+                idx = np.random.choice(len(policies), size=num_query, replace=False)
+                _policies = [policies[i] for i in idx]
+                rollout_queries = env.get_queries_from_policies(
+                    _policies, return_trajectories=True
                 )
-                mlflow.log_figure(fig_queries, f"queries_{step}.png")
-            plt.close("all")
+            else:
+                # sample the precomputed policies
+                idx = np.random.choice(
+                    len(policies), size=num_query // env.episode_length, replace=False
+                )
+                _policies = [policies[i] for i in idx]
+                rollout_queries = env.get_queries_from_policies(
+                    _policies, return_trajectories=False
+                )
+
+            query_best, label, utility, queried_states = agent.optimize_query(
+                x_min=x_min,
+                x_max=x_max,
+                algorithm=algorithm,
+                v=v,
+                num_query=num_query,
+                rollout_queries=rollout_queries,
+                trajectories=trajectory_query,
+            )
+            agent.update_belief(query_best, label)
+
+            # compute policy_regret
+            env_estimate = get_driver_target_velocity(
+                reward_weights=agent.get_parameters_estimate().squeeze()
+            )
+            estimated_policy, *_ = env_estimate.get_optimal_policy()
+            r_estimate = env_estimate.simulate(estimated_policy)
+            r_optimal = env_estimate.simulate(optimal_policy)
+            policy_regret[step] = np.abs(r_estimate - r_optimal)
+            mlflow.log_metric("policy_regret", policy_regret[step], step=step)
+            steps.set_description(f"Policy Regret {policy_regret[step]}")
+
+            if step % query_logging_rate == 0:
+
+                # solve for the mean policy
+                theta = agent.get_parameters_estimate().squeeze()
+                policy, *_ = env.get_optimal_policy(theta=theta)
+                env.simulate(policy)
+
+                # plot the history
+                env.plot_history()
+                mlflow.log_figure(plt.gcf(), f"driver_{step}.pdf")
+
+                # log the latest comparison query
+                if trajectory_query:
+                    fig_queries = env.plot_query_trajectory_pair(
+                        queried_states[0], queried_states[1], label
+                    )
+                    mlflow.log_figure(fig_queries, f"queries_{step}.png")
+
+                else:
+                    fig_queries = env.plot_query_states_pair(
+                        queried_states[0], queried_states[1], label
+                    )
+                    mlflow.log_figure(fig_queries, f"queries_{step}.png")
+                plt.close("all")
+    mlflow.log_dict(policy_regret, "policy_regret.json")
 
 
 if __name__ == "__main__":

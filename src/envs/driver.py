@@ -17,10 +17,10 @@ from matplotlib.path import Path
 from scipy.ndimage import rotate, zoom
 from scipy.special import expit
 
-from src.constants import DRIVER_METADATA
+from src.constants import DRIVER_METADATA_PATH
 from src.utils import get_pairs_from_list, timeit
 
-IMG_FOLDER = str(DRIVER_METADATA)
+IMG_FOLDER = str(DRIVER_METADATA_PATH)
 GRASS = np.tile(plt.imread(os.path.join(IMG_FOLDER, "grass.png")), (5, 5, 1))
 
 CAR = {
@@ -748,7 +748,9 @@ class Driver:
         ]
         return policies
 
-    def get_query_trajectories(self, policies: list, n_rollouts: int = 1):
+    def get_queries_from_policies(
+        self, policies: list, n_rollouts: int = 1, return_trajectories: bool = True
+    ):
         trajectories = []
         for policy in policies:
             for i in range(n_rollouts):
@@ -767,8 +769,10 @@ class Driver:
                         s_query.append(y)
                     states.append(np.array(s_query))
                 trajectories.append(np.vstack(states))
-        trajectories = np.stack(trajectories, axis=2)
-        return trajectories
+        if return_trajectories:
+            return np.stack(trajectories, axis=2)
+        else:
+            return np.unique(np.concatenate(trajectories), axis=0)
 
     def plot_history(self):
         x_player = []

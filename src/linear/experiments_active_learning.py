@@ -19,6 +19,7 @@ from tqdm import tqdm
 
 from src.aquisition_functions.aquisition_functions import (
     acquisition_function_bald,
+    acquisition_function_bounded_ball_map,
     acquisition_function_bounded_coordinate_hessian,
     acquisition_function_bounded_hessian,
     acquisition_function_bounded_hessian_trace,
@@ -42,6 +43,7 @@ from src.utils import (
     multivariate_normal_sample,
     sample_random_ball,
     sample_random_cube,
+    sample_random_sphere,
     timeit,
 )
 
@@ -52,7 +54,7 @@ from src.linear.active_learning_config import (
     ALGORITHM,
     DIMENSIONALITY,
     EXPERT_SCALE,
-    GRID_RES,
+    N_SAMPLES,
     PLOT,
     PRIOR_VARIANCE_SCALE,
     SEED,
@@ -139,8 +141,8 @@ class Agent:
         self,
         x_min: float,
         x_max: float,
-        grid_res: complex,
-        algorithm: str = "map_hessian_trace",
+        n_samples: int,
+        algorithm: str = "bounded_coordinate_hessian",
         return_utility: bool = True,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """_summary_
@@ -150,8 +152,13 @@ class Agent:
         Returns:
             Tuple[np.ndarray, np.ndarray]: _description_
         """
-        candidate_queries = get_grid_points(x_min=x_min, x_max=x_max, n_points=grid_res)
-
+        # candidate_queries = get_grid_points(x_min=x_min, x_max=x_max, n_points=500j)
+        candidate_queries = sample_random_cube(
+            dim=self.state_space_dim, x_min=x_min, x_max=x_max, n_points=n_samples
+        )
+        # candidate_queries = sample_random_sphere(
+        #     dim=self.state_space_dim, x_min=x_min, x_max=x_max, n_points=n_samples
+        # )
         if algorithm == "bounded_hessian":
             query_best, utility, *_ = acquisition_function_bounded_hessian(
                 self.reward_model, candidate_queries
@@ -200,6 +207,10 @@ class Agent:
             query_best, utility, *_ = acquisition_function_current_map_hessian(
                 self.reward_model, candidate_queries
             )
+        elif algorithm == "bounded_ball_map":
+            query_best, utility, *_ = acquisition_function_bounded_ball_map(
+                self.reward_model, candidate_queries
+            )
         else:
             raise NotImplementedError()
 
@@ -208,13 +219,12 @@ class Agent:
         if return_utility:
             candidate_queries = [x.tobytes() for x in candidate_queries]
             return (
-                query_best[0][0],
-                query_best[0][1],
+                query_best,
                 y,
                 dict(zip(candidate_queries, utility)),
             )
         else:
-            return query_best[0][0], query_best[0][1], y
+            return query_best, y
 
 
 def simultate(
@@ -223,11 +233,11 @@ def simultate(
     theta_norm: float,
     x_min: float,
     x_max: float,
-    grid_res: complex,
     prior_variance_scale: float,
     expert_scale: float,
     plot: bool,
     simulation_steps: int,
+    n_samples: int,
 ) -> list:
 
     # Initialize the true parameters of the true reward
@@ -266,11 +276,8 @@ def simultate(
     queries_y = []
     labels = []
     for step in tqdm(range(simulation_steps)):
-        query_x, query_y, label, utility = agent.optimize_query(
-            x_min=x_min, x_max=x_max, grid_res=grid_res, algorithm=algorithm
-        )
-        df_query = dict(
-            zip(["x", "y", "label"], [queries_x, queries_y, labels]), index=[0]
+        query, label, utility = agent.optimize_query(
+            x_min=x_min, x_max=x_max, n_samples=n_samples, algorithm=algorithm
         )
         theta_hat = agent.get_parameters_estimate()
         cosine_distance = (
@@ -282,90 +289,94 @@ def simultate(
         regret[step] = cosine_distance
         steps.append(step)
 
-        queries_x.append(query_x)
-        queries_y.append(query_y)
-        labels.append(label)
-        df = pd.DataFrame(
-            dict(zip(["x", "y", "label"], [queries_x, queries_y, labels]))
-        )
+        if dimensionality == 2:
+            query_x = query[0][0]
+            query_y = query[0][1]
 
-        axs[0, 0].clear()
-        axs[0, 1].clear()
-        axs[1, 0].clear()
-        axs[1, 1].clear()
-        axs[2, 0].clear()
-        axs[2, 1].clear()
+            df_query = dict(
+                zip(["x", "y", "label"], [queries_x, queries_y, labels]), index=[0]
+            )
+            queries_x.append(query_x)
+            queries_y.append(query_y)
+            labels.append(label)
+            df = pd.DataFrame(
+                dict(zip(["x", "y", "label"], [queries_x, queries_y, labels]))
+            )
 
-        # Regret Viz
-        axs[0, 0].set_title("Regret")
-        axs[0, 0].set_xlabel("Steps")
-        axs[0, 0].set_ylabel("Cosine Distance")
-        axs[0, 0].set_yscale("log")
-        axs[0, 0].plot(steps, list(regret.values()), color="green")
+            axs[0, 0].clear()
+            axs[0, 1].clear()
+            axs[1, 0].clear()
+            axs[1, 1].clear()
+            axs[2, 0].clear()
+            axs[2, 1].clear()
 
-        # Query viz
-        axs[1, 0].set_title("Query Visualization")
-        axs[1, 0].set_xlabel("x1")
-        axs[1, 0].set_ylabel("x2")
-        axs[1, 0].set_ylim(x_min - 0.05, x_max + 0.05)
-        axs[1, 0].set_xlim(x_min - 0.05, x_max + 0.05)
+            # Regret Viz
+            axs[0, 0].set_title("Regret")
+            axs[0, 0].set_xlabel("Steps")
+            axs[0, 0].set_ylabel("Cosine Distance")
+            axs[0, 0].set_yscale("log")
+            axs[0, 0].plot(steps, list(regret.values()), color="green")
 
-        point_1, point_2 = get_2d_direction_points(theta, scale=(x_max - x_min))
-        sns.lineplot(
-            x=[point_1[0], point_2[0]],
-            y=[point_1[1], point_2[1]],
-            ax=axs[1, 0],
-            color="green",
-            label="True Boundary",
-        )
-        point_1, point_2 = get_2d_direction_points(theta_hat, scale=(x_max - x_min))
-        sns.lineplot(
-            x=[point_1[0], point_2[0]],
-            y=[point_1[1], point_2[1]],
-            ax=axs[1, 0],
-            color="red",
-            label="MAP Boundary",
-        )
-        sns.scatterplot(
-            data=df,
-            x="x",
-            y="y",
-            hue="label",
-            palette=palette,
-            legend=False,
-            ax=axs[1, 0],
-        )
-        axs[1, 0].plot(
-            df.iloc[-1]["x"],
-            df.iloc[-1]["y"],
-            marker="x",
-            color="black",
-            markersize=10,
-        )
+            # Query viz
+            axs[1, 0].set_title("Query Visualization")
+            axs[1, 0].set_xlabel("x1")
+            axs[1, 0].set_ylabel("x2")
+            axs[1, 0].set_ylim(x_min - 0.05, x_max + 0.05)
+            axs[1, 0].set_xlim(x_min - 0.05, x_max + 0.05)
 
-        # Heatmap Viz
-        heatmap = from_utility_dict_to_heatmap(utility)
-        sns.heatmap(
-            heatmap,
-            cmap="YlGnBu",
-            annot=False,
-            ax=axs[2, 0],
-            cbar_ax=axs[2, 1],
-            vmin=0,
-            vmax=1,
-            cbar=step == 0,
-            annot_kws={"fontsize": 4},
-        )
-        if plot:
-            plt.pause(0.000001)
-            plt.draw()
+            point_1, point_2 = get_2d_direction_points(theta, scale=(x_max - x_min))
+            sns.lineplot(
+                x=[point_1[0], point_2[0]],
+                y=[point_1[1], point_2[1]],
+                ax=axs[1, 0],
+                color="green",
+                label="True Boundary",
+            )
+            point_1, point_2 = get_2d_direction_points(theta_hat, scale=(x_max - x_min))
+            sns.lineplot(
+                x=[point_1[0], point_2[0]],
+                y=[point_1[1], point_2[1]],
+                ax=axs[1, 0],
+                color="red",
+                label="MAP Boundary",
+            )
+            sns.scatterplot(
+                data=df,
+                x="x",
+                y="y",
+                hue="label",
+                palette=palette,
+                legend=False,
+                ax=axs[1, 0],
+            )
+            axs[1, 0].plot(
+                df.iloc[-1]["x"],
+                df.iloc[-1]["y"],
+                marker="x",
+                color="black",
+                markersize=10,
+            )
+
+            # Heatmap Viz
+            # heatmap = from_utility_dict_to_heatmap(utility)
+            # sns.heatmap(
+            #     heatmap,
+            #     cmap="YlGnBu",
+            #     annot=False,
+            #     ax=axs[2, 0],
+            #     cbar_ax=axs[2, 1],
+            #     vmin=0,
+            #     vmax=1,
+            #     cbar=step == 0,
+            #     annot_kws={"fontsize": 4},
+            # )
+            if plot:
+                plt.pause(0.000001)
+                plt.draw()
+            mlflow.log_figure(fig, f"queries_{step}.png")
 
         # Update the agent
-        agent.update_belief(np.array([[query_x, query_y]]), label)
-
-        # Log figure
-        if step % 20 == 0:
-            mlflow.log_figure(fig, f"queries_{step}.png")
+        agent.update_belief(query, label)
 
     plt.close("all")
     mlflow.log_dict(regret, "regret.json")
@@ -382,6 +393,7 @@ if __name__ == "__main__":
         mlflow.log_param("x_max", X_MAX)
         mlflow.log_param("prior_variance_scale", PRIOR_VARIANCE_SCALE)
         mlflow.log_param("expert_scale", EXPERT_SCALE)
+        mlflow.log_param("n_samples", N_SAMPLES)
 
         simultate(
             algorithm=ALGORITHM,
@@ -390,7 +402,7 @@ if __name__ == "__main__":
             expert_scale=EXPERT_SCALE,
             x_min=X_MIN,
             x_max=X_MAX,
-            grid_res=GRID_RES,
+            n_samples=N_SAMPLES,
             prior_variance_scale=PRIOR_VARIANCE_SCALE,
             plot=PLOT,
             simulation_steps=SIMULATION_STEPS,

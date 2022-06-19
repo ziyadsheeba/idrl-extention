@@ -402,9 +402,13 @@ class LinearLogisticRewardModel(LogisticRewardModel):
         self, X: np.ndarray, return_kappa_list: bool = False
     ) -> float:
         def _get_kappa(x) -> float:
-            theta_i = self.param_norm * x.T / np.linalg.norm(x)
+            theta_i = (
+                self.param_norm * x.T / np.linalg.norm(x)
+                if np.linalg.norm(x) > 1e-9
+                else x.T
+            )
             kappa = expit(x @ theta_i) * (1 - expit(x @ theta_i))
-            return kappa[0][0]
+            return kappa.item()
 
         kappa = np.Inf
         kappas = []

@@ -6,7 +6,6 @@ from typing import List, Tuple, Union
 import cvxpy as cp
 import numpy as np
 from joblib import Parallel, delayed
-from loky import wrap_non_picklable_objects
 from scipy.special import expit
 from scipy.stats import chi2
 
@@ -135,10 +134,11 @@ def acquisition_function_optimal_hessian(
 def acquisition_function_map_confidence(
     reward_model: LinearLogisticRewardModel,
     candidate_queries: List[np.array],
-    confidence: float = 0.2,
+    confidence: float = 0.01,
     v: np.ndarray = None,
     return_utility: bool = True,
     return_argmax: bool = True,
+    n_jobs: int = 8,
 ) -> Union[np.ndarray, List]:
     """_summary_
 
@@ -169,12 +169,16 @@ def acquisition_function_map_confidence(
     )
 
     global _get_val
-
     if v is None:
 
-        def _get_val(x):
-            kappas = copy.deecopy(kappas)
-            theta_i = P @ x.T / np.sqrt(x @ P @ x.T).item() + mean
+        def _get_val(x, kappas=kappas, X=X):
+            kappas = copy.deepcopy(kappas)
+            X = copy.deepcopy(X)
+            theta_i = (
+                P @ x.T / np.sqrt(x @ P @ x.T).item() + mean
+                if np.linalg.norm(x) > 0
+                else mean
+            )
             kappa_i = (expit(x @ theta_i) * (1 - expit(x @ theta_i))).item()
             kappas.append(kappa_i)
             X.append(x)
@@ -191,6 +195,7 @@ def acquisition_function_map_confidence(
     )
     argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
     argmax = np.random.choice(argmax)
+    print("Number of optimal points: ", len(argmax))
     return_vals = []
     return_vals.append(candidate_queries[argmax])
     if return_utility:
@@ -280,8 +285,68 @@ def acquisition_function_bounded_coordinate_hessian(
     )
     argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
     argmax = np.random.choice(argmax)
+
     return_vals = []
     return_vals.append(candidate_queries[argmax])
+    if return_utility:
+        return_vals.append(utility)
+    if return_argmax:
+        return_vals.append(argmax)
+    return return_vals
+
+
+def acquisition_function_bounded_ball_map(
+    reward_model: LinearLogisticRewardModel,
+    candidate_queries: List[np.array],
+    v: np.ndarray = None,
+    return_utility: bool = True,
+    n_jobs: int = 8,
+    return_argmax: bool = True,
+) -> Union[np.ndarray, List]:
+    """Picks the query that minimizes determinant of the bounded hessian inverse.
+
+    Args:
+        reward_model (LinearLogisticRewardModel): The reward model
+        candidate_queries (List[np.array]): The candidate queries.
+        return_utility (bool, optional): If the utility for each query should be returned. Defaults to True.
+
+    Returns:
+        Union[np.ndarray, Tuple[np.ndarray, List]: Optimal query or (optimal query, utility).
+    """
+    global _get_val
+    H_inv = reward_model.hessian_bound_coord_inv
+
+    if v is None:
+
+        def _get_val(x):
+            kappa_i = reward_model.compute_uniform_kappa(x)
+            return round(kappa_i, 7) * round(np.linalg.norm(x), 7)
+
+    else:
+
+        def _get_val(x):
+
+            kappa_i = round(reward_model.compute_uniform_kappa(x), 7)
+            norm = round(np.linalg.norm(x), 7)
+            term_1 = 1 + norm * kappa_i
+            term_2 = (x @ H_inv @ v).item() ** 2
+            return term_2 / term_2
+
+    utility = Parallel(n_jobs=n_jobs, backend="multiprocessing")(
+        delayed(_get_val)(x) for x in candidate_queries
+    )
+    _argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
+    print("Number of optimal points: ", len(_argmax))
+
+    map_candidates = [candidate_queries[i] for i in _argmax]
+    query_best, _, argmax_map = acquisition_function_current_map_hessian(
+        reward_model, map_candidates
+    )
+    argmax = _argmax[argmax_map]
+
+    argmax = np.random.choice(argmax)
+    return_vals = []
+    return_vals.append(query_best)
     if return_utility:
         return_vals.append(utility)
     if return_argmax:
