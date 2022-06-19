@@ -230,7 +230,7 @@ def simultate(
     env = get_driver_target_velocity()
     optimal_policy, *_ = env.get_optimal_policy()
     policy_regret = {}
-    cosine_similarity = {}
+    cosine_distance = {}
 
     # true reward parameter
     theta_true = env.reward_w
@@ -323,14 +323,14 @@ def simultate(
             r_estimate = env_estimate.simulate(estimated_policy)
             r_optimal = env_estimate.simulate(optimal_policy)
             policy_regret[step] = np.abs(r_estimate - r_optimal)
-            cosine_similarity[step] = (
+            cosine_distance[step] = (
                 spatial.distance.cosine(theta_true, theta_hat)
                 if np.linalg.norm(theta_hat) > 0
                 else 1
             )
 
             mlflow.log_metric("policy_regret", policy_regret[step], step=step)
-            mlflow.log_metric("cosine_similarity", cosine_similarity[step], step=step)
+            mlflow.log_metric("cosine_distance", cosine_distance[step], step=step)
 
             steps.set_description(f"Policy Regret {policy_regret[step]}")
 
