@@ -45,7 +45,7 @@ def acquisition_function_bounded_hessian(
     reward_model: LinearLogisticRewardModel,
     candidate_queries: List[np.array],
     return_utility: bool = True,
-    n_jobs: int = 8,
+    n_jobs: int = 1,
     v: np.ndarray = None,
     return_argmax: bool = True,
 ) -> Union[np.ndarray, List]:
@@ -92,7 +92,7 @@ def acquisition_function_optimal_hessian(
     theta: np.ndarray,
     return_utility: bool = True,
     v: np.ndarray = None,
-    n_jobs: int = 8,
+    n_jobs: int = 1,
     return_argmax: bool = True,
 ) -> Union[np.ndarray, List]:
     """Picks the query that minimizes determinant of the hessian inverse an the true parameter.
@@ -138,7 +138,7 @@ def acquisition_function_map_confidence(
     v: np.ndarray = None,
     return_utility: bool = True,
     return_argmax: bool = True,
-    n_jobs: int = 8,
+    n_jobs: int = 1,
 ) -> Union[np.ndarray, List]:
     """_summary_
 
@@ -246,7 +246,7 @@ def acquisition_function_bounded_coordinate_hessian(
     candidate_queries: List[np.array],
     v: np.ndarray = None,
     return_utility: bool = True,
-    n_jobs: int = 8,
+    n_jobs: int = 1,
     return_argmax: bool = True,
 ) -> Union[np.ndarray, List]:
     """Picks the query that minimizes determinant of the bounded hessian inverse.
@@ -300,7 +300,7 @@ def acquisition_function_bounded_ball_map(
     candidate_queries: List[np.array],
     v: np.ndarray = None,
     return_utility: bool = True,
-    n_jobs: int = 8,
+    n_jobs: int = 1,
     return_argmax: bool = True,
 ) -> Union[np.ndarray, List]:
     """Picks the query that minimizes determinant of the bounded hessian inverse.
@@ -330,7 +330,7 @@ def acquisition_function_bounded_ball_map(
             norm = round(np.linalg.norm(x), 7)
             term_1 = 1 + norm * kappa_i
             term_2 = (x @ H_inv @ v).item() ** 2
-            return term_2 / term_2
+            return term_2 / term_1
 
     utility = Parallel(n_jobs=n_jobs, backend="multiprocessing")(
         delayed(_get_val)(x) for x in candidate_queries
@@ -394,7 +394,7 @@ def acquisition_function_current_map_hessian(
     candidate_queries: List[np.array],
     return_utility: bool = True,
     return_argmax: bool = True,
-    n_jobs: int = 8,
+    n_jobs: int = 1,
     v: np.ndarray = None,
 ) -> Union[np.ndarray, List]:
     """_summary_

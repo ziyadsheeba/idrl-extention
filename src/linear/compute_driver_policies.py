@@ -3,7 +3,6 @@ from multiprocessing import Pool
 
 import numpy as np
 import tqdm
-from joblib import Parallel, delayed
 
 from src.constants import DRIVER_PRECOMPUTED_POLICIES_PATH
 from src.envs.driver import get_driver_target_velocity

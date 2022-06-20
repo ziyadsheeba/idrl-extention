@@ -4,9 +4,9 @@ import multiprocessing
 import os
 import pickle
 import time
+from multiprocessing import Pool
 from typing import Callable, List, Tuple
 
-import cvxpy as cp
 import matplotlib
 import matplotlib.pyplot as plt
 import mlflow
@@ -65,7 +65,6 @@ from src.linear.driver_config import (
     SIMULATION_STEPS,
     THETA_NORM,
     TRAJECTORY_QUERY,
-    USE_ROLLOUTS,
     X_MAX,
     X_MIN,
 )
@@ -224,7 +223,6 @@ def simultate(
     query_logging_rate: int,
     num_query: int,
     idrl: bool,
-    use_rollouts: bool,
     trajectory_query: bool,
 ):
     env = get_driver_target_velocity()
@@ -361,7 +359,9 @@ def simultate(
     mlflow.log_dict(coisne)
 
 
-if __name__ == "__main__":
+def execute(seed):
+    np.random.seed(seed)
+
     mlflow.set_experiment(f"driver/{ALGORITHM}")
     with mlflow.start_run():
         mlflow.log_param("algorithm", ALGORITHM)
@@ -373,8 +373,8 @@ if __name__ == "__main__":
         mlflow.log_param("canidate_policy_update_rate", CANDIDATE_POLICY_UPDATE_RATE)
         mlflow.log_param("num_candidate_policies", NUM_CANDIDATE_POLICIES)
         mlflow.log_param("idrl", IDRL)
-        mlflow.log_param("use_rollouts", USE_ROLLOUTS)
         mlflow.log_param("use_trajectories", TRAJECTORY_QUERY)
+        mlflow.log_param("seed", seed)
 
         simultate(
             algorithm=ALGORITHM,
@@ -389,6 +389,12 @@ if __name__ == "__main__":
             query_logging_rate=QUERY_LOGGING_RATE,
             num_query=NUM_QUERY,
             idrl=IDRL,
-            use_rollouts=USE_ROLLOUTS,
             trajectory_query=TRAJECTORY_QUERY,
         )
+
+
+if __name__ == "__main__":
+    pool = Pool(processes=8)
+    SEEDS = [0, 1, 2, 3, 4, 5, 6, 7]
+    for seed in tqdm(pool.imap_unordered(execute, SEEDS), total=len(SEEDS)):
+        pass

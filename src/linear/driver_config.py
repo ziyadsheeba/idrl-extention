@@ -26,5 +26,4 @@ NUM_QUERY = 990  # number of states, the number of queries will be n*(n-1)/4
 TRAJECTORY_QUERY = False  # whether to use trajectory queries or not
 CANDIDATE_POLICY_UPDATE_RATE = 10
 QUERY_LOGGING_RATE = 1
-IDRL = True
-USE_ROLLOUTS = True
+IDRL = False
