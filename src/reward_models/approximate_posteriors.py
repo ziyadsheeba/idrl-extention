@@ -62,8 +62,11 @@ class LaplaceApproximation(ApproximatePosterior):
         else:
             theta_0 = self._mean
         solution = scipy.optimize.minimize(
-            self.neglog_posterior, theta_0, args=(y, X), method="L-BFGS-B"
+            self.neglog_posterior, theta_0, args=(y, X), method="L-BFGS-B", tol=1e-10
         )
         mean = solution.x
-        hess_inv = matrix_inverse(self.hessian(mean, X))
+        if self.hessian is not None:
+            hess_inv = matrix_inverse(self.hessian(mean, X))
+        else:
+            hess_inv = solution.hess_inv.todense()
         return np.expand_dims(mean, axis=-1), hess_inv

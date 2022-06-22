@@ -200,8 +200,10 @@ class LinearLogisticRewardModel(LogisticRewardModel):
             np.ndarray: The hessian at a specific theta given X.
         """
         if X is None:
-            X = np.array(self.X)
-        D = np.diag(expit(X @ theta) * (1 - expit(X @ theta)))
+            X = np.concatenate(self.X)
+        y_hat = expit(X @ theta)
+        entropy = np.atleast_1d((y_hat * (1 - y_hat)).squeeze())
+        D = np.diag(entropy)
         H = X.T @ D @ X + self.prior_precision
         return H
 
