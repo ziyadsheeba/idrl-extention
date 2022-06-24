@@ -11,6 +11,8 @@ PRIOR_VARIANCE = 10
 PRIOR_COVARIANCE = 10 * np.eye(DIM)
 PRIOR_MEAN = np.zeros(shape=(DIM, 1))
 THETA_NORM = 2
+X_MAX = 1
+X_MIN = -1
 
 
 def neglog_posterior_hessian(theta, X):
@@ -63,7 +65,9 @@ def compute_kappa(x):
 
 class TestLinearLogisticRewardModel(unittest.TestCase):
     def test_prior(self):
-        reward_model = LinearLogisticRewardModel(dim=DIM, prior_variance=PRIOR_VARIANCE)
+        reward_model = LinearLogisticRewardModel(
+            dim=DIM, prior_variance=PRIOR_VARIANCE, x_min=X_MIN, x_max=X_MAX
+        )
         self.assertTrue(np.allclose(PRIOR_MEAN, reward_model.prior_mean, atol=1e-8))
         self.assertTrue(
             np.allclose(PRIOR_COVARIANCE, reward_model.prior_covariance, atol=1e-8)
@@ -87,7 +91,9 @@ class TestLinearLogisticRewardModel(unittest.TestCase):
         )
 
     def test_neglog_posterior(self):
-        reward_model = LinearLogisticRewardModel(dim=DIM, prior_variance=PRIOR_VARIANCE)
+        reward_model = LinearLogisticRewardModel(
+            dim=DIM, prior_variance=PRIOR_VARIANCE, x_min=X_MIN, x_max=X_MAX
+        )
 
         self.assertTrue(
             np.allclose(
@@ -129,7 +135,9 @@ class TestLinearLogisticRewardModel(unittest.TestCase):
         )
 
     def test_updating(self):
-        reward_model = LinearLogisticRewardModel(dim=DIM, prior_variance=PRIOR_VARIANCE)
+        reward_model = LinearLogisticRewardModel(
+            dim=DIM, prior_variance=PRIOR_VARIANCE, x_min=X_MIN, x_max=X_MAX
+        )
         X = np.random.uniform(size=(100, DIM))
         y = np.array(100 * [1])
         for x, _y in zip(X, y):
@@ -141,7 +149,9 @@ class TestLinearLogisticRewardModel(unittest.TestCase):
         self.assertTrue((X == X_rew).all())
 
     def test_hessian(self):
-        reward_model = LinearLogisticRewardModel(dim=DIM, prior_variance=PRIOR_VARIANCE)
+        reward_model = LinearLogisticRewardModel(
+            dim=DIM, prior_variance=PRIOR_VARIANCE, x_min=X_MIN, x_max=X_MAX
+        )
         X = np.random.uniform(size=(100, DIM))
         theta = np.random.uniform(size=(DIM, 1))
         hess_true = neglog_posterior_hessian(theta, X)
@@ -154,7 +164,9 @@ class TestLinearLogisticRewardModel(unittest.TestCase):
         )
 
     def test_neglog_posterior_hessian_increment(self):
-        reward_model = LinearLogisticRewardModel(dim=DIM, prior_variance=PRIOR_VARIANCE)
+        reward_model = LinearLogisticRewardModel(
+            dim=DIM, prior_variance=PRIOR_VARIANCE, x_min=X_MIN, x_max=X_MAX
+        )
         X = np.random.uniform(size=(100, DIM))
         y = np.array(100 * [1])
         theta = np.random.uniform(size=(DIM, 1))
@@ -171,8 +183,13 @@ class TestLinearLogisticRewardModel(unittest.TestCase):
 
     def test_kappa_computation(self):
         reward_model = LinearLogisticRewardModel(
-            dim=DIM, prior_variance=PRIOR_VARIANCE, param_norm=THETA_NORM
+            dim=DIM,
+            prior_variance=PRIOR_VARIANCE,
+            x_min=X_MIN,
+            x_max=X_MAX,
+            param_norm=THETA_NORM,
         )
+
         x = np.random.uniform(size=(1, DIM))
         self.assertTrue(reward_model.compute_uniform_kappa(x) == compute_kappa(x))
         self.assertTrue(reward_model.compute_uniform_kappa(0 * x) == 0.25)

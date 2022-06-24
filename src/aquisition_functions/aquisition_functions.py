@@ -28,7 +28,11 @@ def acquisition_function_random(
     candidate_queries: Union[List[np.ndarray], np.ndarray],
     return_utility: bool = True,
     return_argmax: bool = True,
-) -> Union[np.ndarray, List[np.ndarray, np.ndarray], List[np.ndarray, np.ndarray, int]]:
+) -> Union[
+    np.ndarray,
+    List[Union[np.ndarray, np.ndarray]],
+    List[Union[np.ndarray, np.ndarray, int]],
+]:
     """Random aquisition function.
 
     Args:
@@ -59,7 +63,11 @@ def acquisition_function_bounded_hessian(
     n_jobs: int = 1,
     v: np.ndarray = None,
     return_argmax: bool = True,
-) -> Union[np.ndarray, List[np.ndarray, np.ndarray], List[np.ndarray, np.ndarray, int]]:
+) -> Union[
+    np.ndarray,
+    List[Union[np.ndarray, np.ndarray]],
+    List[Union[np.ndarray, np.ndarray, int]],
+]:
     """Chooses the queries according to the uniform-bounded hessian determinant.
 
     Args:
@@ -114,7 +122,11 @@ def acquisition_function_bounded_coordinate_hessian(
     n_jobs: int = 1,
     v: np.ndarray = None,
     return_argmax: bool = True,
-) -> Union[np.ndarray, List[np.ndarray, np.ndarray], List[np.ndarray, np.ndarray, int]]:
+) -> Union[
+    np.ndarray,
+    List[Union[np.ndarray, np.ndarray]],
+    List[Union[np.ndarray, np.ndarray, int]],
+]:
     """_summary_
 
     Args:
@@ -178,7 +190,11 @@ def acquisition_function_current_map_hessian(
     n_jobs: int = 1,
     v: np.ndarray = None,
     return_argmax: bool = True,
-) -> Union[np.ndarray, List[np.ndarray, np.ndarray], List[np.ndarray, np.ndarray, int]]:
+) -> Union[
+    np.ndarray,
+    List[Union[np.ndarray, np.ndarray]],
+    List[Union[np.ndarray, np.ndarray, int]],
+]:
     """Uses the determinant of the hessian evaluated at the map estimate to choose queries.
 
     Args:
@@ -242,7 +258,11 @@ def acquisition_function_optimal_hessian(
     n_jobs: int = 1,
     v: np.ndarray = None,
     return_argmax: bool = True,
-) -> Union[np.ndarray, List[np.ndarray, np.ndarray], List[np.ndarray, np.ndarray, int]]:
+) -> Union[
+    np.ndarray,
+    List[Union[np.ndarray, np.ndarray]],
+    List[Union[np.ndarray, np.ndarray, int]],
+]:
     """Chooses the queries according to the determinant of the hessian evaluated at the optimal parameter.
     Args:
         reward_model (LogisticRewardModel): The reward model
@@ -298,7 +318,11 @@ def acquisition_function_map_confidence(
     v: np.ndarray = None,
     return_argmax: bool = True,
     confidence: float = 0.01,
-) -> Union[np.ndarray, List[np.ndarray, np.ndarray], List[np.ndarray, np.ndarray, int]]:
+) -> Union[
+    np.ndarray,
+    List[Union[np.ndarray, np.ndarray]],
+    List[Union[np.ndarray, np.ndarray, int]],
+]:
     """Uses the worst case hessian determinant according to approximate confidence sets around
         the current map estimate.
 
@@ -384,7 +408,11 @@ def acquisition_function_bounded_ball_map(
     n_jobs: int = 1,
     v: np.ndarray = None,
     return_argmax: bool = True,
-) -> Union[np.ndarray, List[np.ndarray, np.ndarray], List[np.ndarray, np.ndarray, int]]:
+) -> Union[
+    np.ndarray,
+    List[Union[np.ndarray, np.ndarray]],
+    List[Union[np.ndarray, np.ndarray, int]],
+]:
     """Uses a simplified upper bound to choose queries. Please refer to the paper for further details.
 
     Args:
@@ -455,7 +483,11 @@ def acquisition_function_map_hessian(
     n_jobs: int = 1,
     v: np.ndarray = None,
     return_argmax: bool = True,
-) -> Union[np.ndarray, List[np.ndarray, np.ndarray], List[np.ndarray, np.ndarray, int]]:
+) -> Union[
+    np.ndarray,
+    List[Union[np.ndarray, np.ndarray]],
+    List[Union[np.ndarray, np.ndarray, int]],
+]:
     """Uses the determinant of the hessian at the updated map to choose queries.
 
     Args:

@@ -253,6 +253,8 @@ def simultate(
         dim=dimensionality,
         prior_variance=prior_variance_scale * (theta_norm) ** 2 / 2,
         param_norm=theta_norm,
+        x_min=x_min,
+        x_max=x_max,
     )
 
     # Initialize the agents

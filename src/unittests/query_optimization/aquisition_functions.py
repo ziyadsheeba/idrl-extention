@@ -14,15 +14,17 @@ from src.utils import argmax_over_index_set, matrix_inverse
 
 DIM = 10
 PRIOR_VARIANCE = 10
-PRIOR_COVARIANCE = 10 * np.eye(DIM)
+PRIOR_COVARIANCE = PRIOR_VARIANCE * np.eye(DIM)
 PRIOR_MEAN = np.zeros(shape=(DIM, 1))
 THETA_NORM = 2
+X_MAX = 1
+X_MIN = -1
 
 
 def _bounded_hessian(reward_model, candidate_queries):
     cost = []
     for x in candidate_queries:
-        H_inv, _ = reward_model.increment_inv_hessian_bound(np.expand_dims(x, axis=0))
+        H_inv = reward_model.increment_inv_hessian_bound(np.expand_dims(x, axis=0))
         cost.append(np.linalg.det(H_inv).item())
     argmin = np.argmin(cost)
     min_val = cost[argmin]
@@ -49,7 +51,7 @@ def neglog_posterior_hessian(theta, X):
 class TestAquisitionFunctions(unittest.TestCase):
     def test_bounded_hessian(self):
         reward_model = LinearLogisticRewardModel(
-            dim=DIM, prior_variance=PRIOR_VARIANCE, kappa=0.00001
+            dim=DIM, prior_variance=PRIOR_VARIANCE, x_min=X_MIN, X_MAX=X_MAX
         )
         X = np.random.uniform(size=(100, DIM))
         y = np.array(100 * [1])
@@ -60,11 +62,11 @@ class TestAquisitionFunctions(unittest.TestCase):
             reward_model, candidate_queries
         )
         argmin, min_val = _bounded_hessian(reward_model, candidate_queries)
-        self.assertTrue(argmin == argmax)
+        self.assertTrue(np.allclose(cost[argmin], cost[argmax]))
 
     def test_bounded_hessian(self):
         reward_model = LinearLogisticRewardModel(
-            dim=DIM, prior_variance=PRIOR_VARIANCE, kappa=0.00001
+            dim=DIM, prior_variance=PRIOR_VARIANCE, x_min=X_MIN, x_max=X_MAX
         )
         X = np.random.uniform(size=(100, DIM))
         y = np.array(100 * [1])
@@ -75,18 +77,21 @@ class TestAquisitionFunctions(unittest.TestCase):
             reward_model, candidate_queries
         )
         argmin, min_val = _bounded_hessian(reward_model, candidate_queries)
-        self.assertTrue(argmin == argmax)
+        self.assertTrue(utility[argmin], utility[argmax])
 
     def test_bounded_coordinate_hessian(self):
         reward_model = LinearLogisticRewardModel(
-            dim=DIM, prior_variance=PRIOR_VARIANCE, kappa=0.00001, param_norm=THETA_NORM
+            dim=DIM,
+            prior_variance=PRIOR_VARIANCE,
+            x_min=X_MIN,
+            x_max=X_MAX,
+            param_norm=THETA_NORM,
         )
         X = np.random.uniform(size=(100, DIM))
         y = np.array(100 * [1])
         for x, _y in zip(X, y):
             reward_model.update(np.expand_dims(x, axis=0), _y)
         kappas = [compute_kappa(x) for x in X]
-
         candidate_queries = np.random.uniform(size=(1000, DIM))
         query_best, utility, argmax = acquisition_function_bounded_coordinate_hessian(
             reward_model, candidate_queries
@@ -101,11 +106,15 @@ class TestAquisitionFunctions(unittest.TestCase):
             )
             cost.append(np.linalg.det(matrix_inverse(H)))
         argmin = np.argmin(cost)
-        self.assertTrue(argmin == argmax)
+        self.assertTrue(np.allclose(cost[argmin], cost[argmax]))
 
     def test_current_map_hessian(self):
         reward_model = LinearLogisticRewardModel(
-            dim=DIM, prior_variance=PRIOR_VARIANCE, kappa=0.00001, param_norm=THETA_NORM
+            dim=DIM,
+            prior_variance=PRIOR_VARIANCE,
+            x_min=X_MIN,
+            x_max=X_MAX,
+            param_norm=THETA_NORM,
         )
         X = np.random.uniform(size=(100, DIM))
         y = np.array(100 * [1])
@@ -139,4 +148,4 @@ class TestAquisitionFunctions(unittest.TestCase):
             )
             cost.append(np.linalg.det(matrix_inverse(_H)))
         argmin = np.argmin(cost)
-        self.assertTrue(argmin == argmax)
+        self.assertTrue(np.allclose(cost[argmin], cost[argmax]))
