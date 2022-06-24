@@ -100,24 +100,28 @@ class Agent:
 
     def optimize_query(
         self,
-        rollout_queries: np.ndarray = None,
-        algorithm: str = "bounded_coordinate_hessian",
+        rollout_queries: np.ndarray,
+        algorithm: str = "current_map_hessian",
         v: np.ndarray = None,
         trajectories: bool = False,
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> Tuple:
         """A function to optimize over queries.
 
         Args:
-            rollout_queries (np.ndarray, optional): _description_. Defaults to None.
-            algorithm (str, optional): _description_. Defaults to "bounded_coordinate_hessian".
-            v (np.ndarray, optional): _description_. Defaults to None.
-            trajectories (bool, optional): _description_. Defaults to False.
+            rollout_queries (np.ndarray, optional): The provided candidate queries, trajectories or states.
+            If trajectories, assumes an array of shape (episode_length, state_dim, n_trajectories), for states
+            (episode_length, state_dim).
+            algorithm (str, optional): The algorithm to chose the queries. Defaults to "current_map_hessian".
+            v (np.ndarray, optional): The state visitation vector. Defaults to None.
+            trajectories (bool, optional): Whether the provided rollout queries are trajectories or states.
+            Defaults to False.
 
         Raises:
-            NotImplementedError: _description_
+            NotImplementedError: If optimization algorithm is not implemented.
 
         Returns:
-            Tuple[np.ndarray, np.ndarray]: _description_
+            Tuple: The best query as a difference, i.e (feature1-feature2), the label thereof,
+            the utility mapping, and the optimal queries in the original space.
         """
 
         if trajectories:
