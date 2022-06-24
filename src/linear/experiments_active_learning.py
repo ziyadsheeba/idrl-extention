@@ -360,18 +360,18 @@ def simultate(
             )
 
             # Heatmap Viz
-            # heatmap = from_utility_dict_to_heatmap(utility)
-            # sns.heatmap(
-            #     heatmap,
-            #     cmap="YlGnBu",
-            #     annot=False,
-            #     ax=axs[2, 0],
-            #     cbar_ax=axs[2, 1],
-            #     vmin=0,
-            #     vmax=1,
-            #     cbar=step == 0,
-            #     annot_kws={"fontsize": 4},
-            # )
+            heatmap = from_utility_dict_to_heatmap(utility)
+            sns.heatmap(
+                heatmap,
+                cmap="YlGnBu",
+                annot=False,
+                ax=axs[2, 0],
+                cbar_ax=axs[2, 1],
+                vmin=0,
+                vmax=1,
+                cbar=step == 0,
+                annot_kws={"fontsize": 4},
+            )
             if plot:
                 plt.pause(0.000001)
                 plt.draw()
