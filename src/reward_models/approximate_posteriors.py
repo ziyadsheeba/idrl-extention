@@ -40,10 +40,19 @@ class LaplaceApproximation(ApproximatePosterior):
         self._mean = prior_mean
         self._hessian_inv = prior_covariance
 
-    def get_mean(self):
-        return self._mean
+    def get_mean(self, project: bool = False, param_norm: float = None):
+        if project:
+            assert param_norm is not None, "Must provide parameter norm for projection"
+            print(np.linalg.norm(self._mean))
+            return (
+                param_norm * self._mean / np.linalg.norm(self._mean)
+                if np.linalg.norm(self._mean) > param_norm
+                else self._mean
+            )
+        else:
+            return self._mean
 
-    def get_covariance(self):
+    def get_covariance(self, project: bool = False, param_norm: float = None):
         return self._hessian_inv
 
     def update(self, X: np.ndarray, y: np.ndarray):

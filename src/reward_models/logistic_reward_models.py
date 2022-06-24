@@ -200,10 +200,12 @@ class LinearLogisticRewardModel(LogisticRewardModel):
             np.ndarray: The hessian at a specific theta given X.
         """
         if X is None:
-            X = np.concatenate(self.X)
-        y_hat = expit(X @ theta)
-        entropy = np.atleast_1d((y_hat * (1 - y_hat)).squeeze())
-        D = np.diag(entropy)
+            if len(self.X) > 0:
+                X = np.concatenate(self.X)
+            else:
+                return self.prior_precision
+        D = np.eye(X.shape[0]) * (expit(X @ theta) * (1 - expit(X @ theta)))
+        D = np.atleast_2d(D)
         H = X.T @ D @ X + self.prior_precision
         return H
 
@@ -473,8 +475,10 @@ class LinearLogisticRewardModel(LogisticRewardModel):
         states = np.sum(trajectories, axis=0).T
         return states
 
-    def get_parameters_estimate(self):
-        return self.approximate_posterior.get_mean()
+    def get_parameters_estimate(self, project: bool = False):
+        return self.approximate_posterior.get_mean(
+            project=project, param_norm=self.param_norm
+        )
 
     def get_parameters_covariance(self):
         return self.approximate_posterior.get_covariance()

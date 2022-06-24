@@ -356,7 +356,7 @@ def simultate(
                     mlflow.log_figure(fig_queries, f"queries_{step}.png")
                 plt.close("all")
     mlflow.log_dict(policy_regret, "policy_regret.json")
-    mlflow.log_dict(coisne)
+    mlflow.log_dict(cosine_distance)
 
 
 def execute(seed):
@@ -394,7 +394,8 @@ def execute(seed):
 
 
 if __name__ == "__main__":
-    pool = Pool(processes=8)
-    SEEDS = [0, 1, 2, 3, 4, 5, 6, 7]
+    pool = Pool(processes=1)
+    # SEEDS = [0, 1, 2, 3, 4, 5, 6, 7]
+    SEEDS = [0]
     for seed in tqdm(pool.imap_unordered(execute, SEEDS), total=len(SEEDS)):
         pass

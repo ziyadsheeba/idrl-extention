@@ -265,12 +265,16 @@ def acquisition_function_bounded_coordinate_hessian(
     if v is None:
 
         def _get_val(x):
+            if x.ndim == 1:
+                x = np.expand_dims(x, axis=0)
             kappa_i = reward_model.compute_uniform_kappa(x)
             return kappa_i * (x @ H_inv @ x.T).item()
 
     else:
 
         def _get_val(x):
+            if x.ndim == 1:
+                x = np.expand_dims(x, axis=0)
             kappa_i = reward_model.compute_uniform_kappa(x)
             v_bar = H_inv @ v
             val = (
@@ -319,17 +323,22 @@ def acquisition_function_bounded_ball_map(
     if v is None:
 
         def _get_val(x):
+            if x.ndim == 1:
+                x = np.expand_dims(x, axis=0)
             kappa_i = reward_model.compute_uniform_kappa(x)
             return round(kappa_i, 7) * round(np.linalg.norm(x), 7)
 
     else:
 
         def _get_val(x):
-
+            if x.ndim == 1:
+                x = np.expand_dims(x, axis=0)
             kappa_i = round(reward_model.compute_uniform_kappa(x), 7)
             norm = round(np.linalg.norm(x), 7)
             term_1 = 1 + norm * kappa_i
-            term_2 = (x @ H_inv @ v).item() ** 2
+            # term_1 = norm * kappa_i
+            # term_2 = (x @ H_inv @ v).item() ** 2
+            term_2 = (x @ v).item() ** 2
             return term_2 / term_1
 
     utility = Parallel(n_jobs=n_jobs, backend="multiprocessing")(
@@ -407,18 +416,24 @@ def acquisition_function_current_map_hessian(
     Returns:
         Union[np.ndarray, Tuple[np.ndarray, List]: _description_
     """
-    mean, cov = reward_model.get_parameters_moments()
+    # mean, cov = reward_model.get_parameters_moments()
+    mean = reward_model.get_parameters_estimate(project=True)
+    cov = matrix_inverse(reward_model.neglog_posterior_hessian(theta=mean))
     global _get_val
 
     if v is None:
 
         def _get_val(x):
+            if x.ndim == 1:
+                x = np.expand_dims(x, axis=0)
             kappa_x = (expit(x @ mean) * (1 - expit(x @ mean))).item()
             return kappa_x * (x @ cov @ x.T).item()
 
     else:
 
         def _get_val(x):
+            if x.ndim == 1:
+                x = np.expand_dims(x, axis=0)
             kappa_x = (expit(x @ mean) * (1 - expit(x @ mean))).item()
             v_bar = cov @ v
             val = (
