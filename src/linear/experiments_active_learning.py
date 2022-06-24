@@ -18,16 +18,12 @@ from scipy.special import expit
 from tqdm import tqdm
 
 from src.aquisition_functions.aquisition_functions import (
-    acquisition_function_bald,
     acquisition_function_bounded_ball_map,
     acquisition_function_bounded_coordinate_hessian,
     acquisition_function_bounded_hessian,
-    acquisition_function_bounded_hessian_trace,
     acquisition_function_current_map_hessian,
-    acquisition_function_expected_hessian,
     acquisition_function_map_confidence,
     acquisition_function_map_hessian,
-    acquisition_function_map_hessian_trace,
     acquisition_function_optimal_hessian,
     acquisition_function_random,
 )
@@ -47,7 +43,6 @@ from src.utils import (
     timeit,
 )
 
-matplotlib.use("Qt5Agg")
 plt.style.use("ggplot")
 
 from src.linear.active_learning_config import (
@@ -70,16 +65,6 @@ class Expert:
         self.true_parameter = true_parameter
 
     def query_pair_comparison(self, x_1: np.ndarray, x_2: np.ndarray) -> int:
-        """_summary_
-
-        Args:
-            x_1 (np.ndarray): _description_
-            x_2 (np.ndarray): _description_
-
-        Returns:
-            int: _description_
-        """
-
         assert isinstance(x_1, np.ndarray) and isinstance(
             x_2, np.ndarray
         ), "Queries must be of type np.ndarray"
@@ -117,14 +102,11 @@ class Agent:
         reward_model: LogisticRewardModel,
         state_space_dim: int,
     ):
-        """_summary_
-
+        """
         Args:
-            expert (Expert): _description_
-            policy (Policy): _description_
-            prior_variance (float): _description_
-            state_space_dim (int): _description_
-            name (str): _description_
+            expert (Expert): An instance of the expert class.
+            reward_model (LogisticRewardModel): The reward model.
+            state_space_dim (int): The state space dimensions.
         """
         self.state_space_dim = state_space_dim
         self.expert = expert
@@ -142,23 +124,29 @@ class Agent:
         x_min: float,
         x_max: float,
         n_samples: int,
-        algorithm: str = "bounded_coordinate_hessian",
+        algorithm: str = "current_map_hessian",
         return_utility: bool = True,
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """_summary_
+        """Optimizes queries according to the given algorithm.
 
         Args:
-            algortihm (str, optional): _description_. Defaults to "bounded_hessian".
+            x_min (float): Minmum state.
+            x_max (float): Maximum state.
+            n_samples (int): Number of samples to evaluate
+            algorithm (str, optional): The algorithm of choice to optimize.
+                Defaults to "bounded_coordinate_hessian".
+            return_utility (bool, optional): Whether of not to return the utility of each query.
+                Defaults to True.
+
+        Raises:
+            NotImplementedError: If algorithm is not implemented.
+
         Returns:
-            Tuple[np.ndarray, np.ndarray]: _description_
+            Tuple
         """
-        # candidate_queries = get_grid_points(x_min=x_min, x_max=x_max, n_points=500j)
         candidate_queries = sample_random_cube(
             dim=self.state_space_dim, x_min=x_min, x_max=x_max, n_points=n_samples
         )
-        # candidate_queries = sample_random_sphere(
-        #     dim=self.state_space_dim, x_min=x_min, x_max=x_max, n_points=n_samples
-        # )
         if algorithm == "bounded_hessian":
             query_best, utility, *_ = acquisition_function_bounded_hessian(
                 self.reward_model, candidate_queries
@@ -171,33 +159,13 @@ class Agent:
             query_best, utility, *_ = acquisition_function_random(
                 self.reward_model, candidate_queries
             )
-        elif algorithm == "bald":
-            query_best, utility, *_ = acquisition_function_bald(
-                self.reward_model, candidate_queries
-            )
-        elif algorithm == "expected_hessian":
-            query_best, utility, *_ = acquisition_function_expected_hessian(
-                self.reward_model, candidate_queries
-            )
         elif algorithm == "bounded_coordinate_hessian":
             query_best, utility, *_ = acquisition_function_bounded_coordinate_hessian(
-                self.reward_model, candidate_queries
-            )
-        elif algorithm == "map_convex_bound":
-            query_best, utility, *_ = acquisition_function_map_convex_bound(
-                self.reward_model, candidate_queries
-            )
-        elif algorithm == "bounded_hessian_trace":
-            query_best, utility, *_ = acquisition_function_bounded_hessian_trace(
                 self.reward_model, candidate_queries
             )
         elif algorithm == "optimal_hessian":
             query_best, utility, *_ = acquisition_function_optimal_hessian(
                 self.reward_model, candidate_queries, theta=self.expert.true_parameter
-            )
-        elif algorithm == "map_hessian_trace":
-            query_best, utility, *_ = acquisition_function_map_hessian_trace(
-                self.reward_model, candidate_queries
             )
         elif algorithm == "map_confidence":
             query_best, utility, *_ = acquisition_function_map_confidence(
@@ -253,6 +221,8 @@ def simultate(
         dim=dimensionality,
         prior_variance=prior_variance_scale * (theta_norm) ** 2 / 2,
         param_norm=theta_norm,
+        x_min=x_min,
+        x_max=x_max,
     )
 
     # Initialize the agents
@@ -358,18 +328,18 @@ def simultate(
             )
 
             # Heatmap Viz
-            # heatmap = from_utility_dict_to_heatmap(utility)
-            # sns.heatmap(
-            #     heatmap,
-            #     cmap="YlGnBu",
-            #     annot=False,
-            #     ax=axs[2, 0],
-            #     cbar_ax=axs[2, 1],
-            #     vmin=0,
-            #     vmax=1,
-            #     cbar=step == 0,
-            #     annot_kws={"fontsize": 4},
-            # )
+            heatmap = from_utility_dict_to_heatmap(utility)
+            sns.heatmap(
+                heatmap,
+                cmap="YlGnBu",
+                annot=False,
+                ax=axs[2, 0],
+                cbar_ax=axs[2, 1],
+                vmin=0,
+                vmax=1,
+                cbar=step == 0,
+                annot_kws={"fontsize": 4},
+            )
             if plot:
                 plt.pause(0.000001)
                 plt.draw()

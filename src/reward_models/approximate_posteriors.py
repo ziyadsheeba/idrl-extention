@@ -40,10 +40,18 @@ class LaplaceApproximation(ApproximatePosterior):
         self._mean = prior_mean
         self._hessian_inv = prior_covariance
 
-    def get_mean(self):
-        return self._mean
+    def get_mean(self, project: bool = False, param_norm: float = None):
+        if project:
+            assert param_norm is not None, "Must provide parameter norm for projection"
+            return (
+                param_norm * self._mean / np.linalg.norm(self._mean)
+                if np.linalg.norm(self._mean) > param_norm
+                else self._mean
+            )
+        else:
+            return self._mean
 
-    def get_covariance(self):
+    def get_covariance(self, project: bool = False, param_norm: float = None):
         return self._hessian_inv
 
     def update(self, X: np.ndarray, y: np.ndarray):
@@ -62,8 +70,11 @@ class LaplaceApproximation(ApproximatePosterior):
         else:
             theta_0 = self._mean
         solution = scipy.optimize.minimize(
-            self.neglog_posterior, theta_0, args=(y, X), method="L-BFGS-B"
+            self.neglog_posterior, theta_0, args=(y, X), method="L-BFGS-B", tol=1e-10
         )
         mean = solution.x
-        hess_inv = matrix_inverse(self.hessian(mean, X))
+        if self.hessian is not None:
+            hess_inv = matrix_inverse(self.hessian(mean, X))
+        else:
+            hess_inv = solution.hess_inv.todense()
         return np.expand_dims(mean, axis=-1), hess_inv
