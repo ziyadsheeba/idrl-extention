@@ -43,7 +43,6 @@ class LaplaceApproximation(ApproximatePosterior):
     def get_mean(self, project: bool = False, param_norm: float = None):
         if project:
             assert param_norm is not None, "Must provide parameter norm for projection"
-            print(np.linalg.norm(self._mean))
             return (
                 param_norm * self._mean / np.linalg.norm(self._mean)
                 if np.linalg.norm(self._mean) > param_norm

@@ -18,16 +18,12 @@ from scipy.special import expit
 from tqdm import tqdm
 
 from src.aquisition_functions.aquisition_functions import (
-    acquisition_function_bald,
     acquisition_function_bounded_ball_map,
     acquisition_function_bounded_coordinate_hessian,
     acquisition_function_bounded_hessian,
-    acquisition_function_bounded_hessian_trace,
     acquisition_function_current_map_hessian,
-    acquisition_function_expected_hessian,
     acquisition_function_map_confidence,
     acquisition_function_map_hessian,
-    acquisition_function_map_hessian_trace,
     acquisition_function_optimal_hessian,
     acquisition_function_random,
 )
@@ -148,17 +144,21 @@ class Agent:
         """_summary_
 
         Args:
-            algortihm (str, optional): _description_. Defaults to "bounded_hessian".
+            x_min (float): Minmum state.
+            x_max (float): Maximum state.
+            n_samples (int): Number of samples to evaluate
+            algorithm (str, optional): The algorithm of choice to optimize. Defaults to "bounded_coordinate_hessian".
+            return_utility (bool, optional): Whether of not to return the utility of each query. Defaults to True.
+
+        Raises:
+            NotImplementedError: If algorithm is not implemented
+
         Returns:
             Tuple[np.ndarray, np.ndarray]: _description_
         """
-        # candidate_queries = get_grid_points(x_min=x_min, x_max=x_max, n_points=500j)
         candidate_queries = sample_random_cube(
             dim=self.state_space_dim, x_min=x_min, x_max=x_max, n_points=n_samples
         )
-        # candidate_queries = sample_random_sphere(
-        #     dim=self.state_space_dim, x_min=x_min, x_max=x_max, n_points=n_samples
-        # )
         if algorithm == "bounded_hessian":
             query_best, utility, *_ = acquisition_function_bounded_hessian(
                 self.reward_model, candidate_queries
@@ -171,33 +171,13 @@ class Agent:
             query_best, utility, *_ = acquisition_function_random(
                 self.reward_model, candidate_queries
             )
-        elif algorithm == "bald":
-            query_best, utility, *_ = acquisition_function_bald(
-                self.reward_model, candidate_queries
-            )
-        elif algorithm == "expected_hessian":
-            query_best, utility, *_ = acquisition_function_expected_hessian(
-                self.reward_model, candidate_queries
-            )
         elif algorithm == "bounded_coordinate_hessian":
             query_best, utility, *_ = acquisition_function_bounded_coordinate_hessian(
-                self.reward_model, candidate_queries
-            )
-        elif algorithm == "map_convex_bound":
-            query_best, utility, *_ = acquisition_function_map_convex_bound(
-                self.reward_model, candidate_queries
-            )
-        elif algorithm == "bounded_hessian_trace":
-            query_best, utility, *_ = acquisition_function_bounded_hessian_trace(
                 self.reward_model, candidate_queries
             )
         elif algorithm == "optimal_hessian":
             query_best, utility, *_ = acquisition_function_optimal_hessian(
                 self.reward_model, candidate_queries, theta=self.expert.true_parameter
-            )
-        elif algorithm == "map_hessian_trace":
-            query_best, utility, *_ = acquisition_function_map_hessian_trace(
-                self.reward_model, candidate_queries
             )
         elif algorithm == "map_confidence":
             query_best, utility, *_ = acquisition_function_map_confidence(

@@ -242,7 +242,7 @@ def acquisition_function_current_map_hessian(
             )
             return val
 
-    utility = Parallel(n_jobs=-1, backend="multiprocessing")(
+    utility = Parallel(n_jobs=n_jobs, backend="multiprocessing")(
         delayed(_get_val)(x) for x in candidate_queries
     )
     argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
@@ -468,7 +468,6 @@ def acquisition_function_bounded_ball_map(
         delayed(_get_val)(x) for x in candidate_queries
     )
     _argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
-    print("Number of optimal points: ", len(_argmax))
 
     map_candidates = [candidate_queries[i] for i in _argmax]
     query_best, _, argmax_map = acquisition_function_current_map_hessian(
