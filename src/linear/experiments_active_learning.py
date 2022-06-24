@@ -66,16 +66,6 @@ class Expert:
         self.true_parameter = true_parameter
 
     def query_pair_comparison(self, x_1: np.ndarray, x_2: np.ndarray) -> int:
-        """_summary_
-
-        Args:
-            x_1 (np.ndarray): _description_
-            x_2 (np.ndarray): _description_
-
-        Returns:
-            int: _description_
-        """
-
         assert isinstance(x_1, np.ndarray) and isinstance(
             x_2, np.ndarray
         ), "Queries must be of type np.ndarray"
@@ -113,14 +103,11 @@ class Agent:
         reward_model: LogisticRewardModel,
         state_space_dim: int,
     ):
-        """_summary_
-
+        """
         Args:
-            expert (Expert): _description_
-            policy (Policy): _description_
-            prior_variance (float): _description_
-            state_space_dim (int): _description_
-            name (str): _description_
+            expert (Expert): An instance of the expert class.
+            reward_model (LogisticRewardModel): The reward model. 
+            state_space_dim (int): The state space dimensions.
         """
         self.state_space_dim = state_space_dim
         self.expert = expert
@@ -138,23 +125,25 @@ class Agent:
         x_min: float,
         x_max: float,
         n_samples: int,
-        algorithm: str = "bounded_coordinate_hessian",
+        algorithm: str = "current_map_hessian",
         return_utility: bool = True,
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """_summary_
+        """Optimizes queries according to the given algorithm.
 
         Args:
             x_min (float): Minmum state.
             x_max (float): Maximum state.
             n_samples (int): Number of samples to evaluate
-            algorithm (str, optional): The algorithm of choice to optimize. Defaults to "bounded_coordinate_hessian".
-            return_utility (bool, optional): Whether of not to return the utility of each query. Defaults to True.
+            algorithm (str, optional): The algorithm of choice to optimize. 
+                Defaults to "bounded_coordinate_hessian".
+            return_utility (bool, optional): Whether of not to return the utility of each query. 
+                Defaults to True.
 
         Raises:
-            NotImplementedError: If algorithm is not implemented
+            NotImplementedError: If algorithm is not implemented.
 
         Returns:
-            Tuple[np.ndarray, np.ndarray]: _description_
+            Tuple
         """
         candidate_queries = sample_random_cube(
             dim=self.state_space_dim, x_min=x_min, x_max=x_max, n_points=n_samples
