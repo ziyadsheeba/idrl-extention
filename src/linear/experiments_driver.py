@@ -19,16 +19,12 @@ from scipy.special import expit
 from tqdm import tqdm
 
 from src.aquisition_functions.aquisition_functions import (
-    acquisition_function_bald,
     acquisition_function_bounded_ball_map,
     acquisition_function_bounded_coordinate_hessian,
     acquisition_function_bounded_hessian,
-    acquisition_function_bounded_hessian_trace,
     acquisition_function_current_map_hessian,
-    acquisition_function_expected_hessian,
     acquisition_function_map_confidence,
     acquisition_function_map_hessian,
-    acquisition_function_map_hessian_trace,
     acquisition_function_optimal_hessian,
     acquisition_function_random,
 )
@@ -78,12 +74,12 @@ class Agent:
         reward_model: LogisticRewardModel,
         state_space_dim: int,
     ):
-        """_summary_
-
+        """
         Args:
-            prior_variance (float): _description_
-            state_space_dim (int): _description_
-            name (str): _description_
+            query_expert (Callable): A function to provide feedback given a query.
+            state_to_features (Callable): Transforms states to query features used for the model.
+            reward_model (LogisticRewardModel): The reward model.
+            state_space_dim (int): The state dimensionality.
         """
         self.state_space_dim = state_space_dim
         self.reward_model = reward_model
@@ -104,22 +100,29 @@ class Agent:
 
     def optimize_query(
         self,
-        x_min: float,
-        x_max: float,
-        num_query: int,
-        algorithm: str = "bounded_coordinate_hessian",
+        rollout_queries: np.ndarray,
+        algorithm: str = "current_map_hessian",
         v: np.ndarray = None,
         trajectories: bool = False,
-        rollout_queries: np.ndarray = None,
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> Tuple:
+        """A function to optimize over queries.
 
-        if rollout_queries is None:
-            assert (
-                trajectories == False
-            ), "Must provide rollout trajecterories for trajectory comparisons"
-            rollout_queries = sample_random_cube(
-                dim=len(x_min), x_min=x_min, x_max=x_max, n_points=num_query
-            )
+        Args:
+            rollout_queries (np.ndarray, optional): The provided candidate queries, trajectories or states.
+            If trajectories, assumes an array of shape (episode_length, state_dim, n_trajectories), for states
+            (episode_length, state_dim).
+            algorithm (str, optional): The algorithm to chose the queries. Defaults to "current_map_hessian".
+            v (np.ndarray, optional): The state visitation vector. Defaults to None.
+            trajectories (bool, optional): Whether the provided rollout queries are trajectories or states.
+            Defaults to False.
+
+        Raises:
+            NotImplementedError: If optimization algorithm is not implemented.
+
+        Returns:
+            Tuple: The best query as a difference, i.e (feature1-feature2), the label thereof,
+            the utility mapping, and the optimal queries in the original space.
+        """
 
         if trajectories:
             features = np.apply_along_axis(self.state_to_features, 1, rollout_queries)
@@ -143,14 +146,6 @@ class Agent:
             query_best, utility, argmax = acquisition_function_random(
                 self.reward_model, candidate_queries
             )
-        elif algorithm == "bald":
-            query_best, utility, argmax = acquisition_function_bald(
-                self.reward_model, candidate_queries
-            )
-        elif algorithm == "expected_hessian":
-            query_best, utility, argmax = acquisition_function_expected_hessian(
-                self.reward_model, candidate_queries
-            )
         elif algorithm == "bounded_coordinate_hessian":
             (
                 query_best,
@@ -159,21 +154,9 @@ class Agent:
             ) = acquisition_function_bounded_coordinate_hessian(
                 self.reward_model, candidate_queries, v=v
             )
-        elif algorithm == "map_convex_bound":
-            query_best, utility, argmax = acquisition_function_map_convex_bound(
-                self.reward_model, candidate_queries
-            )
-        elif algorithm == "bounded_hessian_trace":
-            query_best, utility, argmax = acquisition_function_bounded_hessian_trace(
-                self.reward_model, candidate_queries
-            )
         elif algorithm == "optimal_hessian":
             query_best, utility, argmax = acquisition_function_optimal_hessian(
                 self.reward_model, candidate_queries, theta=self.expert.true_parameter
-            )
-        elif algorithm == "map_hessian_trace":
-            query_best, utility, argmax = acquisition_function_map_hessian_trace(
-                self.reward_model, candidate_queries
             )
         elif algorithm == "map_confidence":
             query_best, utility, argmax = acquisition_function_map_confidence(
@@ -238,6 +221,8 @@ def simultate(
         dim=dimensionality,
         prior_variance=prior_variance_scale * (theta_norm) ** 2 / 2,
         param_norm=theta_norm,
+        x_min=x_min,
+        x_max=x_max,
     )
     # Initialize the agents
     agent = Agent(
@@ -304,12 +289,9 @@ def simultate(
                 )
 
             query_best, label, utility, queried_states = agent.optimize_query(
-                x_min=x_min,
-                x_max=x_max,
                 algorithm=algorithm,
-                v=v,
-                num_query=num_query,
                 rollout_queries=rollout_queries,
+                v=v,
                 trajectories=trajectory_query,
             )
             agent.update_belief(query_best, label)
@@ -356,7 +338,7 @@ def simultate(
                     mlflow.log_figure(fig_queries, f"queries_{step}.png")
                 plt.close("all")
     mlflow.log_dict(policy_regret, "policy_regret.json")
-    mlflow.log_dict(cosine_distance)
+    mlflow.log_dict(cosine_distance, "cosine_distance.json")
 
 
 def execute(seed):
@@ -395,7 +377,6 @@ def execute(seed):
 
 if __name__ == "__main__":
     pool = Pool(processes=1)
-    # SEEDS = [0, 1, 2, 3, 4, 5, 6, 7]
-    SEEDS = [0]
+    SEEDS = [0, 1, 2, 3, 4, 5, 6, 7]
     for seed in tqdm(pool.imap_unordered(execute, SEEDS), total=len(SEEDS)):
         pass

@@ -25,10 +25,25 @@ from src.utils import (
 
 def acquisition_function_random(
     reward_model: LogisticRewardModel,
-    candidate_queries: List[np.array],
+    candidate_queries: Union[List[np.ndarray], np.ndarray],
     return_utility: bool = True,
     return_argmax: bool = True,
-) -> Union[np.ndarray, Tuple[np.ndarray, List]]:
+) -> Union[
+    np.ndarray,
+    List[Union[np.ndarray, np.ndarray]],
+    List[Union[np.ndarray, np.ndarray, int]],
+]:
+    """Random aquisition function.
+
+    Args:
+        reward_model (LogisticRewardModel): The reward model
+        candidate_queries (Union[List[np.ndarray], np.ndarray]): The candidate points to evaluate.
+        return_utility (bool, optional): Whether or not to return the utility of all points. Defaults to True.
+        return_argmax (bool, optional): Whether or not to return the index of the maximum. Defaults to True.
+
+    Returns:
+        Union[np.ndarray, List[np.ndarray, np.ndarray], List[np.ndarray, np.ndarray, int]]
+    """
     argmax = np.random.randint(0, len(candidate_queries))
     utility = [0] * len(candidate_queries)
 
@@ -43,22 +58,28 @@ def acquisition_function_random(
 
 def acquisition_function_bounded_hessian(
     reward_model: LinearLogisticRewardModel,
-    candidate_queries: List[np.array],
+    candidate_queries: Union[List[np.ndarray], np.ndarray],
     return_utility: bool = True,
     n_jobs: int = 1,
     v: np.ndarray = None,
     return_argmax: bool = True,
-) -> Union[np.ndarray, List]:
-    """Uses the determinant of the bounded hessian to pick a query. The function is parallelized.
+) -> Union[
+    np.ndarray,
+    List[Union[np.ndarray, np.ndarray]],
+    List[Union[np.ndarray, np.ndarray, int]],
+]:
+    """Chooses the queries according to the uniform-bounded hessian determinant.
 
     Args:
-        reward_model (LinearLogisticRewardModel): The reward model
-        candidate_queries (List[np.array]): The candidate queries.
-        return_utility (bool, optional): If the utility for each query should be returned. Defaults to True.
-        n_jobs (int, optional): The number of jobs to spawn for the query evaluation.
+        reward_model (LogisticRewardModel): The reward model
+        candidate_queries (Union[List[np.ndarray], np.ndarray]): The candidate points to evaluate.
+        return_utility (bool, optional): Whether or not to return the utility of all points. Defaults to True.
+        return_argmax (bool, optional): Whether or not to return the index of the maximum. Defaults to True.
+        n_jobs (int, optional): Number of jobs to evaluate candidates. Defaults to 1.
+        v (np.ndarray, optional): The state-visitation vector. Defaults to None.
 
     Returns:
-        Union[np.ndarray, Tuple[np.ndarray, List]: Optimal query or (optimal query, utility).
+        Union[np.ndarray, List[np.ndarray, np.ndarray], List[np.ndarray, np.ndarray, int]]: _description_
     """
     H_inv = reward_model.hessian_bound_inv
     global _get_val
@@ -66,198 +87,66 @@ def acquisition_function_bounded_hessian(
     if v is None:
 
         def _get_val(x):
+            if x.ndim == 1:
+                x = np.expand_dims(x, axis=0)
             return (x @ H_inv @ x.T).item()
 
     else:
-        raise NotImplementedError()
-
-    utility = Parallel(n_jobs=n_jobs, backend="multiprocessing")(
-        delayed(_get_val)(x) for x in candidate_queries
-    )
-    argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
-    argmax = np.random.choice(argmax)
-
-    return_vals = []
-    return_vals.append(candidate_queries[argmax])
-    if return_utility:
-        return_vals.append(utility)
-    if return_argmax:
-        return_vals.append(argmax)
-    return return_vals
-
-
-def acquisition_function_optimal_hessian(
-    reward_model: LinearLogisticRewardModel,
-    candidate_queries: List[np.array],
-    theta: np.ndarray,
-    return_utility: bool = True,
-    v: np.ndarray = None,
-    n_jobs: int = 1,
-    return_argmax: bool = True,
-) -> Union[np.ndarray, List]:
-    """Picks the query that minimizes determinant of the hessian inverse an the true parameter.
-
-    Args:
-        reward_model (LinearLogisticRewardModel): The reward model
-        candidate_queries (List[np.array]): The candidate queries.
-        return_utility (bool, optional): If the utility for each query should be returned. Defaults to True.
-
-    Returns:
-        Union[np.ndarray, Tuple[np.ndarray, List]: Optimal query or (optimal query, utility).
-    """
-    global _get_val
-
-    if v is None:
 
         def _get_val(x):
-            H = reward_model.increment_neglog_posterior_hessian(theta, x)
-            return np.linalg.det(H)
-
-    else:
-        raise NotImplementedError()
-
-    utility = Parallel(n_jobs=n_jobs, backend="multiprocessing")(
-        delayed(_get_val)(x) for x in candidate_queries
-    )
-    argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
-    argmax = np.random.choice(argmax)
-
-    return_vals = []
-    return_vals.append(candidate_queries[argmax])
-    if return_utility:
-        return_vals.append(utility)
-    if return_argmax:
-        return_vals.append(argmax)
-    return return_vals
-
-
-def acquisition_function_map_confidence(
-    reward_model: LinearLogisticRewardModel,
-    candidate_queries: List[np.array],
-    confidence: float = 0.01,
-    v: np.ndarray = None,
-    return_utility: bool = True,
-    return_argmax: bool = True,
-    n_jobs: int = 1,
-) -> Union[np.ndarray, List]:
-    """_summary_
-
-    Args:
-        reward_model (LinearLogisticRewardModel): _description_
-        candidate_queries (List[np.array]): _description_
-        confidence (float, optional): _description_. Defaults to 0.2.
-        return_utility (bool, optional): _description_. Defaults to True.
-
-    Returns:
-        Union[np.ndarray, Tuple[np.ndarray, List]]: _description_
-    """
-    utility = []
-    mean, covariance = reward_model.get_parameters_moments()
-    levelset = chi2.ppf(confidence, candidate_queries[0].shape[1])
-    P = covariance * levelset
-    X, _ = reward_model.get_dataset()
-
-    global _get_kappas
-
-    def _get_kappas(x):
-        theta_i = P @ x.T / np.sqrt(x @ P @ x.T).item() + mean
-        kappa_i = (expit(x @ theta_i) * (1 - expit(x @ theta_i))).item()
-        return kappa_i
-
-    kappas = Parallel(n_jobs=n_jobs, backend="multiprocessing")(
-        delayed(_get_kappas)(x) for x in X
-    )
-
-    global _get_val
-    if v is None:
-
-        def _get_val(x, kappas=kappas, X=X):
-            kappas = copy.deepcopy(kappas)
-            X = copy.deepcopy(X)
-            theta_i = (
-                P @ x.T / np.sqrt(x @ P @ x.T).item() + mean
-                if np.linalg.norm(x) > 0
-                else mean
-            )
-            kappa_i = (expit(x @ theta_i) * (1 - expit(x @ theta_i))).item()
-            kappas.append(kappa_i)
-            X.append(x)
-            H = reward_model.neglog_posterior_bounded_coordinate_hessian(
-                np.concatenate(X), kappas
-            )
-            return np.linalg.det(H).item()
-
-    else:
-        raise NotImplementedError()
+            if x.ndim == 1:
+                x = np.expand_dims(x, axis=0)
+                kappa = reward_model.kappa
+                v_bar = H_inv @ v
+                val = (
+                    kappa
+                    * (x @ v_bar).item() ** 2
+                    / (1 + kappa * (x @ H_inv @ x.T).item())
+                )
+                return val
 
     utility = Parallel(n_jobs=n_jobs, backend="multiprocessing")(
         delayed(_get_val)(x) for x in candidate_queries
     )
     argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
     argmax = np.random.choice(argmax)
-    print("Number of optimal points: ", len(argmax))
+
     return_vals = []
     return_vals.append(candidate_queries[argmax])
     if return_utility:
         return_vals.append(utility)
     if return_argmax:
         return_vals.append(argmax)
-    return return_vals
-
-
-def acquisition_function_bounded_hessian_trace(
-    reward_model: LinearLogisticRewardModel,
-    candidate_queries: List[np.array],
-    return_utility: bool = True,
-    return_argmax: bool = True,
-) -> Union[np.ndarray, List]:
-    """Picks the query that minimizes trace of the bounded hessian inverse.
-
-    Args:
-        reward_model (LinearLogisticRewardModel): The reward model
-        candidate_queries (List[np.array]): The candidate queries.
-        return_utility (bool, optional): If the utility for each query should be returned. Defaults to True.
-
-    Returns:
-        Union[np.ndarray, Tuple[np.ndarray, List]: Optimal query or (optimal query, utility).
-    """
-    utility = []
-    H_inv = reward_model.hessian_bound_inv
-    for x in candidate_queries:
-        if reward_model.kappa is None:
-            kappa = 0.25
-        else:
-            kappa = reward_model.kappa
-        val = np.linalg.norm(H_inv @ x.T) ** 2 / (1 + kappa * x @ H_inv @ x.T)
-        utility.append(val.item())
-    argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
-    argmax = np.random.choice(argmax)
-    return_vals = []
-    return_vals.append(candidate_queries[argmax])
-    if return_utility:
-        return_vals.append(utility)
-    if return_argmax:
-        return_vals.append(argmax)
-    return return_vals
+    if len(return_vals) == 1:
+        return return_vals[0]
+    else:
+        return return_vals
 
 
 def acquisition_function_bounded_coordinate_hessian(
     reward_model: LinearLogisticRewardModel,
-    candidate_queries: List[np.array],
-    v: np.ndarray = None,
+    candidate_queries: Union[List[np.ndarray], np.ndarray],
     return_utility: bool = True,
     n_jobs: int = 1,
+    v: np.ndarray = None,
     return_argmax: bool = True,
-) -> Union[np.ndarray, List]:
-    """Picks the query that minimizes determinant of the bounded hessian inverse.
+) -> Union[
+    np.ndarray,
+    List[Union[np.ndarray, np.ndarray]],
+    List[Union[np.ndarray, np.ndarray, int]],
+]:
+    """_summary_
 
     Args:
-        reward_model (LinearLogisticRewardModel): The reward model
-        candidate_queries (List[np.array]): The candidate queries.
-        return_utility (bool, optional): If the utility for each query should be returned. Defaults to True.
+        reward_model (LogisticRewardModel): The reward model
+        candidate_queries (Union[List[np.ndarray], np.ndarray]): The candidate points to evaluate.
+        return_utility (bool, optional): Whether or not to return the utility of all points. Defaults to True.
+        return_argmax (bool, optional): Whether or not to return the index of the maximum. Defaults to True.
+        n_jobs (int, optional): Number of jobs to evaluate candidates. Defaults to 1.
+        v (np.ndarray, optional): The state-visitation vector. Defaults to None.
 
     Returns:
-        Union[np.ndarray, Tuple[np.ndarray, List]: Optimal query or (optimal query, utility).
+        Union[np.ndarray, List[np.ndarray, np.ndarray], List[np.ndarray, np.ndarray, int]]
     """
     global _get_val
     H_inv = reward_model.hessian_bound_coord_inv
@@ -296,27 +185,261 @@ def acquisition_function_bounded_coordinate_hessian(
         return_vals.append(utility)
     if return_argmax:
         return_vals.append(argmax)
-    return return_vals
+    if len(return_vals) == 1:
+        return return_vals[0]
+    else:
+        return return_vals
+
+
+def acquisition_function_current_map_hessian(
+    reward_model: LinearLogisticRewardModel,
+    candidate_queries: Union[List[np.ndarray], np.ndarray],
+    return_utility: bool = True,
+    n_jobs: int = 1,
+    v: np.ndarray = None,
+    return_argmax: bool = True,
+) -> Union[
+    np.ndarray,
+    List[Union[np.ndarray, np.ndarray]],
+    List[Union[np.ndarray, np.ndarray, int]],
+]:
+    """Uses the determinant of the hessian evaluated at the map estimate to choose queries.
+
+    Args:
+        reward_model (LogisticRewardModel): The reward model
+        candidate_queries (Union[List[np.ndarray], np.ndarray]): The candidate points to evaluate.
+        return_utility (bool, optional): Whether or not to return the utility of all points. Defaults to True.
+        return_argmax (bool, optional): Whether or not to return the index of the maximum. Defaults to True.
+        n_jobs (int, optional): Number of jobs to evaluate candidates. Defaults to 1.
+        v (np.ndarray, optional): The state-visitation vector. Defaults to None.
+
+    Returns:
+        Union[np.ndarray, List[np.ndarray, np.ndarray], List[np.ndarray, np.ndarray, int]]
+    """
+    mean = reward_model.get_parameters_estimate(project=True)
+    cov = matrix_inverse(reward_model.neglog_posterior_hessian(theta=mean))
+    global _get_val
+
+    if v is None:
+
+        def _get_val(x):
+            if x.ndim == 1:
+                x = np.expand_dims(x, axis=0)
+            kappa_x = (expit(x @ mean) * (1 - expit(x @ mean))).item()
+            return kappa_x * (x @ cov @ x.T).item()
+
+    else:
+
+        def _get_val(x):
+            if x.ndim == 1:
+                x = np.expand_dims(x, axis=0)
+            kappa_x = (expit(x @ mean) * (1 - expit(x @ mean))).item()
+            v_bar = cov @ v
+            val = (
+                kappa_x
+                * (x @ v_bar).item() ** 2
+                / (1 + kappa_x * (x @ cov @ x.T).item())
+            )
+            return val
+
+    utility = Parallel(n_jobs=n_jobs, backend="multiprocessing")(
+        delayed(_get_val)(x) for x in candidate_queries
+    )
+    argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
+    argmax = np.random.choice(argmax)
+    return_vals = []
+    return_vals.append(candidate_queries[argmax])
+    if return_utility:
+        return_vals.append(utility)
+    if return_argmax:
+        return_vals.append(argmax)
+    if len(return_vals) == 1:
+        return return_vals[0]
+    else:
+        return return_vals
+
+
+def acquisition_function_optimal_hessian(
+    reward_model: LinearLogisticRewardModel,
+    candidate_queries: Union[List[np.ndarray], np.ndarray],
+    return_utility: bool = True,
+    n_jobs: int = 1,
+    v: np.ndarray = None,
+    return_argmax: bool = True,
+) -> Union[
+    np.ndarray,
+    List[Union[np.ndarray, np.ndarray]],
+    List[Union[np.ndarray, np.ndarray, int]],
+]:
+    """Chooses the queries according to the determinant of the hessian evaluated at the optimal parameter.
+    Args:
+        reward_model (LogisticRewardModel): The reward model
+        candidate_queries (Union[List[np.ndarray], np.ndarray]): The candidate points to evaluate.
+        return_utility (bool, optional): Whether or not to return the utility of all points. Defaults to True.
+        return_argmax (bool, optional): Whether or not to return the index of the maximum. Defaults to True.
+        n_jobs (int, optional): Number of jobs to evaluate candidates. Defaults to 1.
+        v (np.ndarray, optional): The state-visitation vector. Defaults to None.
+
+    Raises:
+        NotImplementedError: Doesn't support state-visitation vectors yet.
+
+    Returns:
+        Union[np.ndarray, List[np.ndarray, np.ndarray], List[np.ndarray, np.ndarray, int]]
+    """
+
+    global _get_val
+
+    if v is None:
+
+        def _get_val(x):
+            if x.ndim == 1:
+                x = np.expand_dims(x, axis=0)
+            H = reward_model.increment_neglog_posterior_hessian(theta, x)
+            return np.linalg.det(H)
+
+    else:
+
+        def _get_val(x):
+            if x.ndim == 1:
+                x = np.expand_dims(x, axis=0)
+            H = reward_model.increment_neglog_posterior_hessian(theta, x)
+            return v.T @ np.linalg.det(H) @ v
+
+    utility = Parallel(n_jobs=n_jobs, backend="multiprocessing")(
+        delayed(_get_val)(x) for x in candidate_queries
+    )
+    argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
+    argmax = np.random.choice(argmax)
+
+    return_vals = []
+    return_vals.append(candidate_queries[argmax])
+    if return_utility:
+        return_vals.append(utility)
+    if return_argmax:
+        return_vals.append(argmax)
+    if len(return_vals) == 1:
+        return return_vals[0]
+    else:
+        return return_vals
+
+
+def acquisition_function_map_confidence(
+    reward_model: LinearLogisticRewardModel,
+    candidate_queries: Union[List[np.ndarray], np.ndarray],
+    return_utility: bool = True,
+    n_jobs: int = 1,
+    v: np.ndarray = None,
+    return_argmax: bool = True,
+    confidence: float = 0.01,
+) -> Union[
+    np.ndarray,
+    List[Union[np.ndarray, np.ndarray]],
+    List[Union[np.ndarray, np.ndarray, int]],
+]:
+    """Uses the worst case hessian determinant according to approximate confidence sets around
+        the current map estimate.
+
+    Args:
+        reward_model (LogisticRewardModel): The reward model
+        candidate_queries (Union[List[np.ndarray], np.ndarray]): The candidate points to evaluate.
+        return_utility (bool, optional): Whether or not to return the utility of all points. Defaults to True.
+        return_argmax (bool, optional): Whether or not to return the index of the maximum. Defaults to True.
+        n_jobs (int, optional): Number of jobs to evaluate candidates. Defaults to 1.
+        v (np.ndarray, optional): The state-visitation vector. Defaults to None.
+
+    Raises:
+        NotImplementedError: Doesn' support the state-visitation vector yet.
+
+    Returns:
+        Union[np.ndarray, List[np.ndarray, np.ndarray], List[np.ndarray, np.ndarray, int]]
+    """
+
+    utility = []
+    mean, covariance = reward_model.get_parameters_moments()
+    levelset = chi2.ppf(confidence, candidate_queries[0].shape[1])
+    P = covariance * levelset
+    X, _ = reward_model.get_dataset()
+
+    global _get_kappas
+
+    def _get_kappas(x):
+        if x.ndim == 1:
+            x = np.expand_dims(x, axis=0)
+        theta_i = P @ x.T / np.sqrt(x @ P @ x.T).item() + mean
+        kappa_i = (expit(x @ theta_i) * (1 - expit(x @ theta_i))).item()
+        return kappa_i
+
+    kappas = Parallel(n_jobs=n_jobs, backend="multiprocessing")(
+        delayed(_get_kappas)(x) for x in X
+    )
+
+    global _get_val
+    if v is None:
+
+        def _get_val(x, kappas=kappas, X=X):
+            if x.ndim == 1:
+                x = np.expand_dims(x, axis=0)
+            kappas = copy.deepcopy(kappas)
+            X = copy.deepcopy(X)
+            theta_i = (
+                P @ x.T / np.sqrt(x @ P @ x.T).item() + mean
+                if np.linalg.norm(x) > 0
+                else mean
+            )
+            kappa_i = (expit(x @ theta_i) * (1 - expit(x @ theta_i))).item()
+            kappas.append(kappa_i)
+            X.append(x)
+            H = reward_model.neglog_posterior_bounded_coordinate_hessian(
+                np.concatenate(X), kappas
+            )
+            return np.linalg.det(H).item()
+
+    else:
+        raise NotImplementedError("State visitation vector not supported")
+
+    utility = Parallel(n_jobs=n_jobs, backend="multiprocessing")(
+        delayed(_get_val)(x) for x in candidate_queries
+    )
+    argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
+    argmax = np.random.choice(argmax)
+    return_vals = []
+    return_vals.append(candidate_queries[argmax])
+    if return_utility:
+        return_vals.append(utility)
+    if return_argmax:
+        return_vals.append(argmax)
+    if len(return_vals) == 1:
+        return return_vals[0]
+    else:
+        return return_vals
 
 
 def acquisition_function_bounded_ball_map(
     reward_model: LinearLogisticRewardModel,
-    candidate_queries: List[np.array],
-    v: np.ndarray = None,
+    candidate_queries: Union[List[np.ndarray], np.ndarray],
     return_utility: bool = True,
     n_jobs: int = 1,
+    v: np.ndarray = None,
     return_argmax: bool = True,
-) -> Union[np.ndarray, List]:
-    """Picks the query that minimizes determinant of the bounded hessian inverse.
+) -> Union[
+    np.ndarray,
+    List[Union[np.ndarray, np.ndarray]],
+    List[Union[np.ndarray, np.ndarray, int]],
+]:
+    """Uses a simplified upper bound to choose queries. Please refer to the paper for further details.
 
     Args:
-        reward_model (LinearLogisticRewardModel): The reward model
-        candidate_queries (List[np.array]): The candidate queries.
-        return_utility (bool, optional): If the utility for each query should be returned. Defaults to True.
+        reward_model (LogisticRewardModel): The reward model
+        candidate_queries (Union[List[np.ndarray], np.ndarray]): The candidate points to evaluate.
+        return_utility (bool, optional): Whether or not to return the utility of all points. Defaults to True.
+        return_argmax (bool, optional): Whether or not to return the index of the maximum. Defaults to True.
+        n_jobs (int, optional): Number of jobs to evaluate candidates. Defaults to 1.
+        v (np.ndarray, optional): The state-visitation vector. Defaults to None.
 
     Returns:
-        Union[np.ndarray, Tuple[np.ndarray, List]: Optimal query or (optimal query, utility).
+        Union[np.ndarray, List[np.ndarray, np.ndarray], List[np.ndarray, np.ndarray, int]]: _description_
     """
+
     global _get_val
     H_inv = reward_model.hessian_bound_coord_inv
 
@@ -345,7 +468,6 @@ def acquisition_function_bounded_ball_map(
         delayed(_get_val)(x) for x in candidate_queries
     )
     _argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
-    print("Number of optimal points: ", len(_argmax))
 
     map_candidates = [candidate_queries[i] for i in _argmax]
     query_best, _, argmax_map = acquisition_function_current_map_hessian(
@@ -360,24 +482,36 @@ def acquisition_function_bounded_ball_map(
         return_vals.append(utility)
     if return_argmax:
         return_vals.append(argmax)
-    return return_vals
+    if len(return_vals) == 1:
+        return return_vals[0]
+    else:
+        return return_vals
 
 
 def acquisition_function_map_hessian(
     reward_model: LinearLogisticRewardModel,
-    candidate_queries: List[np.array],
+    candidate_queries: Union[List[np.ndarray], np.ndarray],
     return_utility: bool = True,
+    n_jobs: int = 1,
+    v: np.ndarray = None,
     return_argmax: bool = True,
-) -> Union[np.ndarray, List]:
-    """_summary_
+) -> Union[
+    np.ndarray,
+    List[Union[np.ndarray, np.ndarray]],
+    List[Union[np.ndarray, np.ndarray, int]],
+]:
+    """Uses the determinant of the hessian at the updated map to choose queries.
 
     Args:
-        reward_model (LinearLogisticRewardModel): _description_
-        candidate_queries (List[np.array]): _description_
-        return_utility (bool, optional): _description_. Defaults to True.
+        reward_model (LogisticRewardModel): The reward model
+        candidate_queries (Union[List[np.ndarray], np.ndarray]): The candidate points to evaluate.
+        return_utility (bool, optional): Whether or not to return the utility of all points. Defaults to True.
+        return_argmax (bool, optional): Whether or not to return the index of the maximum. Defaults to True.
+        n_jobs (int, optional): Number of jobs to evaluate candidates. Defaults to 1.
+        v (np.ndarray, optional): The state-visitation vector. Defaults to None.
 
     Returns:
-        Union[np.ndarray, Tuple[np.ndarray, List]: _description_
+        Union[np.ndarray, List[np.ndarray, np.ndarray], List[np.ndarray, np.ndarray, int]]: _description_
     """
     utility = []
     for x in candidate_queries:
@@ -395,186 +529,7 @@ def acquisition_function_map_hessian(
         return_vals.append(utility)
     if return_argmax:
         return_vals.append(argmax)
-    return return_vals
-
-
-def acquisition_function_current_map_hessian(
-    reward_model: LinearLogisticRewardModel,
-    candidate_queries: List[np.array],
-    return_utility: bool = True,
-    return_argmax: bool = True,
-    n_jobs: int = 1,
-    v: np.ndarray = None,
-) -> Union[np.ndarray, List]:
-    """_summary_
-
-    Args:
-        reward_model (LinearLogisticRewardModel): _description_
-        candidate_queries (List[np.array]): _description_
-        return_utility (bool, optional): _description_. Defaults to True.
-
-    Returns:
-        Union[np.ndarray, Tuple[np.ndarray, List]: _description_
-    """
-    mean = reward_model.get_parameters_estimate(project=True)
-    cov = matrix_inverse(reward_model.neglog_posterior_hessian(theta=mean))
-    global _get_val
-
-    if v is None:
-
-        def _get_val(x):
-            if x.ndim == 1:
-                x = np.expand_dims(x, axis=0)
-            kappa_x = (expit(x @ mean) * (1 - expit(x @ mean))).item()
-            return kappa_x * (x @ cov @ x.T).item()
-
+    if len(return_vals) == 1:
+        return return_vals[0]
     else:
-
-        def _get_val(x):
-            if x.ndim == 1:
-                x = np.expand_dims(x, axis=0)
-            kappa_x = (expit(x @ mean) * (1 - expit(x @ mean))).item()
-            v_bar = cov @ v
-            val = (
-                kappa_x
-                * (x @ v_bar).item() ** 2
-                / (1 + kappa_x * (x @ cov @ x.T).item())
-            )
-            return val
-
-    utility = Parallel(n_jobs=-1, backend="multiprocessing")(
-        delayed(_get_val)(x) for x in candidate_queries
-    )
-    argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
-    argmax = np.random.choice(argmax)
-    return_vals = []
-    return_vals.append(candidate_queries[argmax])
-    if return_utility:
-        return_vals.append(utility)
-    if return_argmax:
-        return_vals.append(argmax)
-    return return_vals
-
-
-def acquisition_function_map_hessian_trace(
-    reward_model: LinearLogisticRewardModel,
-    candidate_queries: List[np.array],
-    return_utility: bool = True,
-    return_argmax: bool = True,
-) -> Union[np.ndarray, List]:
-    """_summary_
-
-    Args:
-        reward_model (LinearLogisticRewardModel): _description_
-        candidate_queries (List[np.array]): _description_
-        return_utility (bool, optional): _description_. Defaults to True.
-
-    Returns:
-        Union[np.ndarray, Tuple[np.ndarray, List]: _description_
-    """
-    utility = []
-    for x in candidate_queries:
-        utility_y = []
-        for y in [1, 0]:
-            _, H_inv = reward_model.get_simulated_update(x, y)
-            utility_y.append(-np.trace(H_inv))
-        utility.append(min(utility_y))
-
-    argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
-    argmax = np.random.choice(argmax)
-    return_vals = []
-    return_vals.append(candidate_queries[argmax])
-    if return_utility:
-        return_vals.append(utility)
-    if return_argmax:
-        return_vals.append(argmax)
-    return return_vals
-
-
-def acquisition_function_expected_hessian(
-    reward_model: LinearLogisticRewardModel,
-    candidate_queries: List[np.array],
-    n_samples: int = 10,
-    return_utility: bool = True,
-    return_argmax: bool = True,
-) -> Union[np.ndarray, List]:
-    """_summary_
-
-    Args:
-        reward_model (LinearLogisticRewardModel): _description_
-        candidate_queries (List[np.array]): _description_
-        n_samples (int, optional): _description_. Defaults to 10.
-        return_utility (bool, optional): _description_. Defaults to True.
-
-    Returns:
-        Union[np.ndarray, Tuple[np.ndarray, List]: _description_
-    """
-    utility = []
-    for x in candidate_queries:
-        label_utility = {}
-        for y in [1, 0]:
-            mean, H_inv = reward_model.get_simulated_update(x, y)
-            samples = multivariate_normal_sample(
-                mu=mean, cov=H_inv, n_samples=n_samples
-            )
-            H_inv = 0
-            for sample in samples:
-                H = reward_model.neglog_posterior_hessian_increment(theta=sample, x=x)
-                H_inv += matrix_inverse(H)
-            H_inv = H_inv / len(samples)
-            label_utility[y] = -np.linalg.det(H_inv)
-        utility.append(label_utility[min(label_utility, key=label_utility.get)])
-    argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
-    argmax = np.random.choice(argmax)
-
-    return_vals = []
-    return_vals.append(candidate_queries[argmax])
-    if return_utility:
-        return_vals.append(utility)
-    if return_argmax:
-        return_vals.append(argmax)
-    return return_vals
-
-
-def acquisition_function_bald(
-    reward_model: LinearLogisticRewardModel,
-    candidate_queries: List[np.array],
-    n_samples: int = 50,
-    return_utility: bool = True,
-    return_argmax: bool = True,
-) -> Union[np.ndarray, List]:
-    """_summary_
-
-    Args:
-        reward_model (LinearLogisticRewardModel): _description_
-        candidate_queries (List[np.array]): _description_
-        n_samples (int, optional): _description_. Defaults to 50.
-        return_utility (bool, optional): _description_. Defaults to True.
-
-    Returns:
-        Union[np.ndarray, Tuple[np.ndarray, List]: _description_
-    """
-    utility = []
-    for x in candidate_queries:
-        p_1, _ = reward_model.get_approximate_predictive_distribution(
-            x, method="sampling", n_samples=n_samples
-        )
-        marginal_entropy = bernoulli_entropy(p_1)
-
-        samples = reward_model.sample_current_approximate_distribution(n_samples)
-        expected_entropy = 0
-        for i in range(samples.shape[0]):
-            sample = samples[i, :]
-            p_1 = reward_model.get_likelihood(x, y=1, theta=sample)
-            expected_entropy += bernoulli_entropy(p_1)
-        expected_entropy = expected_entropy / n_samples
-        utility.append(marginal_entropy - expected_entropy)
-    argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
-    argmax = np.random.choice(argmax)
-    return_vals = []
-    return_vals.append(candidate_queries[argmax])
-    if return_utility:
-        return_vals.append(utility)
-    if return_argmax:
-        return_vals.append(argmax)
-    return return_vals
+        return return_vals
