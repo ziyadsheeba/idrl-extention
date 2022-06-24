@@ -78,9 +78,6 @@ def acquisition_function_bounded_hessian(
         n_jobs (int, optional): Number of jobs to evaluate candidates. Defaults to 1.
         v (np.ndarray, optional): The state-visitation vector. Defaults to None.
 
-    Raises:
-        NotImplementedError: Doesn't support state-visitation vectors yet.
-
     Returns:
         Union[np.ndarray, List[np.ndarray, np.ndarray], List[np.ndarray, np.ndarray, int]]: _description_
     """
@@ -95,7 +92,18 @@ def acquisition_function_bounded_hessian(
             return (x @ H_inv @ x.T).item()
 
     else:
-        raise NotImplementedError("State visitation vector not supported")
+
+        def _get_val(x):
+            if x.ndim == 1:
+                x = np.expand_dims(x, axis=0)
+                kappa = reward_model.kappa
+                v_bar = H_inv @ v
+                val = (
+                    kappa
+                    * (x @ v_bar).item() ** 2
+                    / (1 + kappa * (x @ H_inv @ x.T).item())
+                )
+                return val
 
     utility = Parallel(n_jobs=n_jobs, backend="multiprocessing")(
         delayed(_get_val)(x) for x in candidate_queries
@@ -290,7 +298,12 @@ def acquisition_function_optimal_hessian(
             return np.linalg.det(H)
 
     else:
-        raise NotImplementedError("State visitation vector not supported")
+
+        def _get_val(x):
+            if x.ndim == 1:
+                x = np.expand_dims(x, axis=0)
+            H = reward_model.increment_neglog_posterior_hessian(theta, x)
+            return v.T @ np.linalg.det(H) @ v
 
     utility = Parallel(n_jobs=n_jobs, backend="multiprocessing")(
         delayed(_get_val)(x) for x in candidate_queries
