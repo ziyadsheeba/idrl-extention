@@ -107,19 +107,11 @@ class Agent:
         x_min: float,
         x_max: float,
         num_query: int,
+        rollout_queries: np.ndarray = None,
         algorithm: str = "bounded_coordinate_hessian",
         v: np.ndarray = None,
         trajectories: bool = False,
-        rollout_queries: np.ndarray = None,
     ) -> Tuple[np.ndarray, np.ndarray]:
-
-        if rollout_queries is None:
-            assert (
-                trajectories == False
-            ), "Must provide rollout trajecterories for trajectory comparisons"
-            rollout_queries = sample_random_cube(
-                dim=len(x_min), x_min=x_min, x_max=x_max, n_points=num_query
-            )
 
         if trajectories:
             features = np.apply_along_axis(self.state_to_features, 1, rollout_queries)
@@ -309,9 +301,9 @@ def simultate(
                 x_min=x_min,
                 x_max=x_max,
                 algorithm=algorithm,
+                rollout_queries=rollout_queries,
                 v=v,
                 num_query=num_query,
-                rollout_queries=rollout_queries,
                 trajectories=trajectory_query,
             )
             agent.update_belief(query_best, label)
