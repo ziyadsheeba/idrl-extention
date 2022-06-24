@@ -66,13 +66,13 @@ class LinearLogisticRewardModel(LogisticRewardModel):
         """_summary_
 
         Args:
-            dim (int): _description_
-            prior_variance (float): _description_
-            x_min (Union[List[float], float]): _description_
-            x_max (Union[List[float], float]): _description_
-            param_norm (float, optional): _description_. Defaults to 1.
-            prior_mean (np.ndarray, optional): _description_. Defaults to None.
-            approximation (str, optional): _description_. Defaults to "laplace".
+            dim (int): Dimensionality.
+            prior_variance (float): Parameter's prior variance.
+            x_min (Union[List[float], float]): The minimum state (in terms of the norm), full list or coordinate wise bound.
+            x_max (Union[List[float], float]): The maximum state (in terms of the norm), full list or coordinate wise bound.
+            param_norm (float, optional): The parameter norm bound. Defaults to 1.
+            prior_mean (np.ndarray, optional): The prior mean for the parameter vector. Defaults to None.
+            approximation (str, optional): The appproximation algorithm. Defaults to "laplace".
 
         Raises:
             NotImplementedError: If approximate posterior is not implemented.
@@ -240,14 +240,14 @@ class LinearLogisticRewardModel(LogisticRewardModel):
     def neglog_posterior_bounded_coordinate_hessian(
         self, X: np.ndarray, kappas: list
     ) -> np.ndarray:
-        """_summary_
+        """Returns the coordinate bounded hessian.
 
         Args:
-            X (np.ndarray): _description_
-            kappas (list): _description_
+            X (np.ndarray): Covariates.
+            kappas (list): Variance bounds.
 
         Returns:
-            np.ndarray: _description_
+            np.ndarray: The coordinate-bounded hessian.
         """
         H = X.T @ np.diag(kappas) @ X + self.prior_precision
         return H
@@ -407,7 +407,15 @@ class LinearLogisticRewardModel(LogisticRewardModel):
         )
         return H_inv, kappas
 
-    def compute_uniform_kappa(self, x: np.ndarray = None):
+    def compute_uniform_kappa(self, x: np.ndarray = None) -> float:
+        """Computes a uniform lowerbound on the variances using the parameter bound.
+
+        Args:
+            x (np.ndarray, optional): The covariate. Defaults to None.
+
+        Returns:
+            float: The variance bound.
+        """
         if x is None:
             if np.linalg.norm(self.x_min) >= np.linalg.norm(self.x_max):
                 x = self.x_min
@@ -423,7 +431,17 @@ class LinearLogisticRewardModel(LogisticRewardModel):
 
     def compute_set_kappa(
         self, X: np.ndarray, constraint: Constraint, return_kappa_list: bool = False
-    ) -> float:
+    ) -> Union[float, List]:
+        """Computes the variance bound given a parameter set.
+
+        Args:
+            X (np.ndarray): The covariates.
+            constraint (Constraint): The parameter set expressed as a constraint.
+            return_kappa_list (bool, optional): Whether to return the variance list for each covariate. Defaults to False.
+
+        Returns:
+            Union[float, List]: uniform bound or bound per covariate.
+        """
         constraints, theta = constraint.get_cvxpy_constraint()
         _x = cp.Parameter((1, self.dim))
         objective = cp.Maximize(_x @ theta)
