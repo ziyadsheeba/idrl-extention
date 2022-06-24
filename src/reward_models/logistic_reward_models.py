@@ -1,19 +1,12 @@
 import copy
-import json
-import multiprocessing
-import os
 from abc import ABC, abstractmethod
 from typing import List, Tuple, Union
 
 import cvxpy as cp
-import matplotlib
-import matplotlib.pyplot as plt
 import numpy as np
-import scipy.optimize
 from scipy.integrate import quadrature
 from scipy.special import expit
 
-from src.constants import EXPERIMENTS_PATH
 from src.constraints.constraints import Constraint
 from src.reward_models.approximate_posteriors import (
     ApproximatePosterior,

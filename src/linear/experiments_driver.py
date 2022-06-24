@@ -44,9 +44,6 @@ from src.utils import (
     timeit,
 )
 
-os.system("taskset -p 0xfffff %d" % os.getpid())
-matplotlib.use("Qt5Agg")
-matplotlib.use("Agg")
 plt.style.use("ggplot")
 
 from src.linear.driver_config import (
@@ -63,6 +60,8 @@ from src.linear.driver_config import (
     TRAJECTORY_QUERY,
     X_MAX,
     X_MIN,
+    SEEDS,
+    N_PROCESSES,
 )
 
 
@@ -376,7 +375,6 @@ def execute(seed):
 
 
 if __name__ == "__main__":
-    pool = Pool(processes=1)
-    SEEDS = [0, 1, 2, 3, 4, 5, 6, 7]
+    pool = Pool(processes=N_PROCESSES)
     for seed in tqdm(pool.imap_unordered(execute, SEEDS), total=len(SEEDS)):
         pass

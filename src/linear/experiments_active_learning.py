@@ -43,7 +43,6 @@ from src.utils import (
     timeit,
 )
 
-matplotlib.use("Qt5Agg")
 plt.style.use("ggplot")
 
 from src.linear.active_learning_config import (
@@ -106,7 +105,7 @@ class Agent:
         """
         Args:
             expert (Expert): An instance of the expert class.
-            reward_model (LogisticRewardModel): The reward model. 
+            reward_model (LogisticRewardModel): The reward model.
             state_space_dim (int): The state space dimensions.
         """
         self.state_space_dim = state_space_dim
@@ -134,9 +133,9 @@ class Agent:
             x_min (float): Minmum state.
             x_max (float): Maximum state.
             n_samples (int): Number of samples to evaluate
-            algorithm (str, optional): The algorithm of choice to optimize. 
+            algorithm (str, optional): The algorithm of choice to optimize.
                 Defaults to "bounded_coordinate_hessian".
-            return_utility (bool, optional): Whether of not to return the utility of each query. 
+            return_utility (bool, optional): Whether of not to return the utility of each query.
                 Defaults to True.
 
         Raises:
