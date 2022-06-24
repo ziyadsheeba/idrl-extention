@@ -24,6 +24,9 @@ notebook = "*"
 opencv-python-headless = "*"
 cvxpy = "*"
 pandas = "*"
+dvc = "*"
+mlflow = "*"
+loky = "*"
 
 [dev-packages]
 

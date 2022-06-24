@@ -1,19 +1,12 @@
 import copy
-import json
-import multiprocessing
-import os
 from abc import ABC, abstractmethod
-from typing import List, Tuple
+from typing import List, Tuple, Union
 
 import cvxpy as cp
-import matplotlib
-import matplotlib.pyplot as plt
 import numpy as np
-import scipy.optimize
 from scipy.integrate import quadrature
 from scipy.special import expit
 
-from src.constants import EXPERIMENTS_PATH
 from src.constraints.constraints import Constraint
 from src.reward_models.approximate_posteriors import (
     ApproximatePosterior,
@@ -57,19 +50,27 @@ class LinearLogisticRewardModel(LogisticRewardModel):
         self,
         dim: int,
         prior_variance: float,
-        param_constraint: Constraint,
+        x_min: Union[List[float], float],
+        x_max: Union[List[float], float],
+        param_norm: float = 1,
         prior_mean: np.ndarray = None,
         approximation: str = "laplace",
-        kappa: float = None,
     ):
-        """An implementation of a linear reward model.
+        """_summary_
 
         Args:
-            dim (int): The dimension of the problem.
-            prior_variance (float): The weight space prior variance.
-            prior_mean (np.ndarray, optional): The weight space prior mean. Defaults to None.
-            kappa (float): The hessian lower bound constant.
+            dim (int): Dimensionality.
+            prior_variance (float): Parameter's prior variance.
+            x_min (Union[List[float], float]): The minimum state (in terms of the norm), full list or coordinate wise bound.
+            x_max (Union[List[float], float]): The maximum state (in terms of the norm), full list or coordinate wise bound.
+            param_norm (float, optional): The parameter norm bound. Defaults to 1.
+            prior_mean (np.ndarray, optional): The prior mean for the parameter vector. Defaults to None.
+            approximation (str, optional): The appproximation algorithm. Defaults to "laplace".
+
+        Raises:
+            NotImplementedError: If approximate posterior is not implemented.
         """
+
         self.dim = dim
         if prior_mean is None:
             self.prior_mean = np.zeros(shape=(dim, 1))
@@ -78,7 +79,21 @@ class LinearLogisticRewardModel(LogisticRewardModel):
 
         self.prior_covariance = prior_variance * np.eye(dim)
         self.prior_precision = matrix_inverse(self.prior_covariance)
-        self.param_constraint = param_constraint
+        self.X = []
+        self.y = []
+        self.kappas = []
+        self.hessian_bound_inv = self.prior_covariance
+        self.hessian_bound_coord_inv = self.prior_covariance
+        self.param_norm = param_norm
+
+        if isinstance(x_min, float):
+            x_min = dim * [x_min]
+        if isinstance(x_max, float):
+            x_max = dim * [x_max]
+        self.x_min = np.expand_dims(np.array(x_min), axis=0)
+        self.x_max = np.expand_dims(np.array(x_max), axis=0)
+        self.kappa = self.compute_uniform_kappa()
+
         if approximation == "laplace":
             self.approximate_posterior = LaplaceApproximation(
                 dim=dim,
@@ -91,13 +106,6 @@ class LinearLogisticRewardModel(LogisticRewardModel):
             raise NotImplementedError(
                 f"The approximation '{approximation}' is not implemented."
             )
-
-        self.X = []
-        self.y = []
-        self.kappas = []
-        self.hessian_bound_inv = self.prior_precision
-        self.hessian_bound_coord_inv = self.prior_precision
-        self.kappa = kappa
 
     def neglog_posterior(
         self, theta: np.ndarray, y: np.ndarray = None, X: np.ndarray = None
@@ -145,7 +153,7 @@ class LinearLogisticRewardModel(LogisticRewardModel):
         Returns:
             float: The likelihood value.
         """
-        y_hat = expit(x @ theta)
+        y_hat = expit(x @ theta).item()
         likelihood = y_hat if y == 1 else 1 - y_hat
         return likelihood
 
@@ -200,14 +208,16 @@ class LinearLogisticRewardModel(LogisticRewardModel):
             np.ndarray: The hessian at a specific theta given X.
         """
         if X is None:
-            X = np.array(self.X)
-        D = np.diag(expit(X @ theta) * (1 - expit(X @ theta)))
-        H = X.T @ D @ X + self.prior_covariance
+            if len(self.X) > 0:
+                X = np.concatenate(self.X)
+            else:
+                return self.prior_precision
+        D = np.eye(X.shape[0]) * (expit(X @ theta) * (1 - expit(X @ theta)))
+        D = np.atleast_2d(D)
+        H = X.T @ D @ X + self.prior_precision
         return H
 
-    def neglog_posterior_bounded_hessian(
-        self, X: np.ndarray, kappa: float
-    ) -> np.ndarray:
+    def neglog_posterior_bounded_hessian(self, X: np.ndarray) -> np.ndarray:
         """Returns a bound on the hessian.
 
         Args:
@@ -217,22 +227,22 @@ class LinearLogisticRewardModel(LogisticRewardModel):
         Returns:
             np.ndarray: The bounded hessian.
         """
-        H = X.T @ X * kappa + self.prior_covariance
+        H = X.T @ X * self.kappa + self.prior_precision
         return H
 
     def neglog_posterior_bounded_coordinate_hessian(
         self, X: np.ndarray, kappas: list
     ) -> np.ndarray:
-        """_summary_
+        """Returns the coordinate bounded hessian.
 
         Args:
-            X (np.ndarray): _description_
-            kappas (list): _description_
+            X (np.ndarray): Covariates.
+            kappas (list): Variance bounds.
 
         Returns:
-            np.ndarray: _description_
+            np.ndarray: The coordinate-bounded hessian.
         """
-        H = X.T @ np.diag(kappas) @ X + self.prior_covariance
+        H = X.T @ np.diag(kappas) @ X + self.prior_precision
         return H
 
     def increment_neglog_posterior_hessian(self, theta, x: np.ndarray) -> np.ndarray:
@@ -250,7 +260,7 @@ class LinearLogisticRewardModel(LogisticRewardModel):
         X = np.concatenate(X)
         D = np.eye(X.shape[0]) * (expit(X @ theta) * (1 - expit(X @ theta)))
         D = np.atleast_2d(D)
-        H = X.T @ D @ X + self.prior_covariance
+        H = X.T @ D @ X + self.prior_precision
         return H
 
     def increment_neglog_posterior_hessian_bound(
@@ -268,7 +278,7 @@ class LinearLogisticRewardModel(LogisticRewardModel):
         X = copy.deepcopy(self.X)
         X.append(x)
         X = np.concatenate(X)
-        H = kappa * X.T @ X + self.prior_covariance
+        H = kappa * X.T @ X + self.prior_precision
         return H
 
     def neglog_posterior_hessian_increment(
@@ -361,7 +371,7 @@ class LinearLogisticRewardModel(LogisticRewardModel):
         self.approximate_posterior.update(X, y)
 
     def update_inv_hessian_bound(self, x: np.ndarray) -> None:
-        self.hessian_bound_inv, self.kappa = self.increment_inv_hessian_bound(x)
+        self.hessian_bound_inv = self.increment_inv_hessian_bound(x)
 
     def update_inv_hessian_coordinate_bound(self, x: np.ndarray) -> None:
         (
@@ -369,20 +379,12 @@ class LinearLogisticRewardModel(LogisticRewardModel):
             self.kappas,
         ) = self.increment_inv_hessian_coordinate_bound(x)
 
-    def increment_inv_hessian_bound(self, x: np.ndarray) -> Tuple[np.ndarray, float]:
-        if self.kappa is None:
-            kappa = self.compute_uniform_kappa(x)
-        else:
-            kappa_i = self.compute_uniform_kappa(x)
-            if kappa_i < self.kappa:
-                kappa = kappa_i
-            else:
-                kappa = self.kappa
+    def increment_inv_hessian_bound(self, x: np.ndarray) -> np.ndarray:
         X = copy.deepcopy(self.X)
         X.append(x)
         X = np.concatenate(X)
-        H_inv = matrix_inverse(self.neglog_posterior_bounded_hessian(X, kappa))
-        return H_inv, kappa
+        H_inv = matrix_inverse(self.neglog_posterior_bounded_hessian(X))
+        return H_inv
 
     def increment_inv_hessian_coordinate_bound(
         self, x: np.ndarray
@@ -398,37 +400,41 @@ class LinearLogisticRewardModel(LogisticRewardModel):
         )
         return H_inv, kappas
 
-    def compute_uniform_kappa(
-        self, X: np.ndarray, return_kappa_list: bool = False
-    ) -> float:
-        constraints, theta = self.param_constraint.get_cvxpy_constraint()
+    def compute_uniform_kappa(self, x: np.ndarray = None) -> float:
+        """Computes a uniform lowerbound on the variances using the parameter bound.
 
-        def _get_kappa(x) -> float:
-            objective = cp.Maximize(x @ theta)
-            problem = cp.Problem(objective, constraints)
-            problem.solve()
-            kappa = expit(x @ theta.value) * (1 - expit(x @ theta.value))
-            return kappa[0][0]
+        Args:
+            x (np.ndarray, optional): The covariate. Defaults to None.
 
-        kappa = np.Inf
-        kappas = []
-        if X.shape == (1, self.dim):
-            kappa = _get_kappa(X)
-        else:
-            for x in X:
-                kappa_i = _get_kappa(x)
-                if return_kappa_list:
-                    kappas.append(kappa_i)
-                if kappa_i < kappa:
-                    kappa = kappa_i
-        if return_kappa_list:
-            return kappas
-        else:
-            return kappa
+        Returns:
+            float: The variance bound.
+        """
+        if x is None:
+            if np.linalg.norm(self.x_min) >= np.linalg.norm(self.x_max):
+                x = self.x_min
+            else:
+                x = self.x_max
+        theta = (
+            self.param_norm * x.T / np.linalg.norm(x)
+            if np.linalg.norm(x) > 1e-9
+            else x.T
+        )
+        kappa = expit(x @ theta) * (1 - expit(x @ theta))
+        return kappa.item()
 
     def compute_set_kappa(
         self, X: np.ndarray, constraint: Constraint, return_kappa_list: bool = False
-    ) -> float:
+    ) -> Union[float, List]:
+        """Computes the variance bound given a parameter set.
+
+        Args:
+            X (np.ndarray): The covariates.
+            constraint (Constraint): The parameter set expressed as a constraint.
+            return_kappa_list (bool, optional): Whether to return the variance list for each covariate. Defaults to False.
+
+        Returns:
+            Union[float, List]: uniform bound or bound per covariate.
+        """
         constraints, theta = constraint.get_cvxpy_constraint()
         _x = cp.Parameter((1, self.dim))
         objective = cp.Maximize(_x @ theta)
@@ -458,8 +464,23 @@ class LinearLogisticRewardModel(LogisticRewardModel):
         else:
             return kappa
 
-    def get_parameters_estimate(self):
-        return self.approximate_posterior.get_mean()
+    @classmethod
+    def from_trajectories_to_states(cls, trajectories: np.ndarray) -> np.ndarray:
+        """Transforms trajectories to effective states.
+
+        Args:
+            trajectories (np.ndarray): A 3d array, (row, columns) is a trajectory.
+
+        Returns:
+            np.ndarray: A 2d array of the effective states, (n_states, dim)
+        """
+        states = np.sum(trajectories, axis=0).T
+        return states
+
+    def get_parameters_estimate(self, project: bool = False):
+        return self.approximate_posterior.get_mean(
+            project=project, param_norm=self.param_norm
+        )
 
     def get_parameters_covariance(self):
         return self.approximate_posterior.get_covariance()

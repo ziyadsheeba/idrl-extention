@@ -51,7 +51,24 @@ class EllipticalConstraint(Constraint):
         return constraints, x
 
 
-class SimpleConstraint(Constraint):
+class SphericalConstraint(Constraint):
+    def __init__(self, b: float, dim: int):
+        """Defines a constraint of the form x.T@x <= b.
+
+        Args:
+            b (float): L2 Level-set.
+            dim (int): Dimensionality of the variable.
+        """
+        self.b = b
+        self.dim = dim
+
+    def get_cvxpy_constraint(self) -> Tuple[cp.Variable, List]:
+        x = cp.Variable((self.dim, 1))
+        constraints = [cp.quad_form(x, np.eye(self.dim)) <= self.b]
+        return constraints, x
+
+
+class BoxConstraint(Constraint):
     def __init__(self, dim: int, lower: float, upper: float):
         """Defines a constraint of the form x<= upper, x>= lower, applied coordinate wise.
 
