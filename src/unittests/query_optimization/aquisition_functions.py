@@ -5,18 +5,9 @@ import numpy as np
 from scipy.special import expit
 
 from src.aquisition_functions.aquisition_functions import (
-    acquisition_function_bald,
-    acquisition_function_bounded_ball_map,
     acquisition_function_bounded_coordinate_hessian,
     acquisition_function_bounded_hessian,
-    acquisition_function_bounded_hessian_trace,
     acquisition_function_current_map_hessian,
-    acquisition_function_expected_hessian,
-    acquisition_function_map_confidence,
-    acquisition_function_map_hessian,
-    acquisition_function_map_hessian_trace,
-    acquisition_function_optimal_hessian,
-    acquisition_function_random,
 )
 from src.reward_models.logistic_reward_models import LinearLogisticRewardModel
 from src.utils import argmax_over_index_set, matrix_inverse
@@ -30,7 +21,6 @@ THETA_NORM = 2
 
 def _bounded_hessian(reward_model, candidate_queries):
     cost = []
-    # compute kappa
     for x in candidate_queries:
         H_inv, _ = reward_model.increment_inv_hessian_bound(np.expand_dims(x, axis=0))
         cost.append(np.linalg.det(H_inv).item())

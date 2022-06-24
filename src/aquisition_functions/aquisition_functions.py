@@ -416,7 +416,6 @@ def acquisition_function_current_map_hessian(
     Returns:
         Union[np.ndarray, Tuple[np.ndarray, List]: _description_
     """
-    # mean, cov = reward_model.get_parameters_moments()
     mean = reward_model.get_parameters_estimate(project=True)
     cov = matrix_inverse(reward_model.neglog_posterior_hessian(theta=mean))
     global _get_val
