@@ -19,6 +19,7 @@ from scipy.special import expit
 
 from src.constants import DRIVER_METADATA_PATH
 from src.utils import get_pairs_from_list, timeit
+import cv2
 
 IMG_FOLDER = str(DRIVER_METADATA_PATH)
 GRASS = np.tile(plt.imread(os.path.join(IMG_FOLDER, "grass.png")), (5, 5, 1))
@@ -601,6 +602,18 @@ class Driver:
                 plt.pause(0.05)
                 plt.clf()
         return fig, ax
+
+    def get_policy_frames(self, policy):
+        imgs = []
+        s = self.reset()
+        done = False
+        while not done:
+            a = policy[int(s[-1])]
+            s, _, done, _ = self.step(a)
+            img = self.render("rgb_array")
+            imgs.append(img)
+        self.reset()
+        return imgs
 
     def close(self):
         if self.viewer:

@@ -27,6 +27,8 @@ pandas = "*"
 dvc = "*"
 mlflow = "*"
 loky = "*"
+streamlit = "*"
+opencv-python = "*"
 
 [dev-packages]
 

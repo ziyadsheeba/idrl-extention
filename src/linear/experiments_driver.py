@@ -28,7 +28,7 @@ from src.aquisition_functions.aquisition_functions import (
     acquisition_function_optimal_hessian,
     acquisition_function_random,
 )
-from src.constants import DRIVER_PRECOMPUTED_POLICIES_PATH, EXPERIMENTS_PATH
+from src.constants import DRIVER_PRECOMPUTED_POLICIES_PATH
 from src.envs.driver import get_driver_target_velocity
 from src.reward_models.logistic_reward_models import (
     LinearLogisticRewardModel,
@@ -51,17 +51,17 @@ from src.linear.driver_config import (
     CANDIDATE_POLICY_UPDATE_RATE,
     DIMENSIONALITY,
     IDRL,
+    N_PROCESSES,
     NUM_CANDIDATE_POLICIES,
     NUM_QUERY,
     PRIOR_VARIANCE_SCALE,
     QUERY_LOGGING_RATE,
+    SEEDS,
     SIMULATION_STEPS,
     THETA_NORM,
     TRAJECTORY_QUERY,
     X_MAX,
     X_MIN,
-    SEEDS,
-    N_PROCESSES,
 )
 
 

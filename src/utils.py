@@ -457,7 +457,7 @@ def get_acquisition_function_label_clean(acquisition_function, latex=False):
     return clean_label
 
 
-def save_video(rgbs, filename, fps=20.0):
+def save_video(rgbs, filename, fps=10):
     """
     Writes out a series of RGB arrays as a video with a specified framerate.
     Args:
@@ -465,40 +465,22 @@ def save_video(rgbs, filename, fps=20.0):
         filename (str): name of the output file (should end on .mp4)
         fps (float): frames per second
     """
-    if filename[-4:] == ".gif":
-        gif_output = True
-        filename_gif = filename
-        filename = filename_gif + ".mp4"
-    else:
-        gif_output = False
-
     if filename[-4:] != ".mp4":
         print("Warning: filename should end on .mp4, not '{}'".format(filename))
-
+    filename_out = filename
+    filename_aux = filename[:-4] + "_aux.mp4"
     # write .mp4
     ims = [cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR) for rgb in rgbs]
     # Define the codec and create VideoWriter object
-    fourcc = cv2.VideoWriter_fourcc("m", "p", "4", "v")
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     (height, width, _) = ims[0].shape
-    writer = cv2.VideoWriter(filename, fourcc, fps, (width, height))
+    writer = cv2.VideoWriter(filename_aux, fourcc, fps, (width, height), True)
     for im in ims:
         writer.write(im)
     writer.release()
+    subprocess.run(f"ffmpeg -i {filename_aux} -vcodec libx264 -f mp4 {filename_out} -y", shell=True)
+    os.remove(filename_aux)
 
-    if gif_output:
-        subprocess.run(
-            [
-                "ffmpeg",
-                "-y",
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                "-i",
-                filename,
-                filename_gif,
-            ]
-        )
-        os.remove(filename)
 
 
 def record_gym_video(env, policy, filename):
