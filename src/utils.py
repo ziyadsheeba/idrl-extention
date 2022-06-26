@@ -472,15 +472,16 @@ def save_video(rgbs, filename, fps=10):
     # write .mp4
     ims = [cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR) for rgb in rgbs]
     # Define the codec and create VideoWriter object
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     (height, width, _) = ims[0].shape
     writer = cv2.VideoWriter(filename_aux, fourcc, fps, (width, height), True)
     for im in ims:
         writer.write(im)
     writer.release()
-    subprocess.run(f"ffmpeg -i {filename_aux} -vcodec libx264 -f mp4 {filename_out} -y", shell=True)
+    subprocess.run(
+        f"ffmpeg -i {filename_aux} -vcodec libx264 -f mp4 {filename_out} -y", shell=True
+    )
     os.remove(filename_aux)
-
 
 
 def record_gym_video(env, policy, filename):

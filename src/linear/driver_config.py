@@ -26,6 +26,6 @@ NUM_QUERY = 100  # number of states, the number of queries will be n*(n-1)/4
 TRAJECTORY_QUERY = True  # whether to use trajectory queries or not
 CANDIDATE_POLICY_UPDATE_RATE = 10
 QUERY_LOGGING_RATE = 1
-IDRL = False
+IDRL = True
 SEEDS = [0, 1, 2, 3, 4, 5, 6, 7]
 N_PROCESSES = 8

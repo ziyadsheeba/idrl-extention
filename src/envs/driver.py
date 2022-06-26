@@ -7,6 +7,7 @@ Driving environment based on:
 import copy
 import os
 
+import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -19,7 +20,6 @@ from scipy.special import expit
 
 from src.constants import DRIVER_METADATA_PATH
 from src.utils import get_pairs_from_list, timeit
-import cv2
 
 IMG_FOLDER = str(DRIVER_METADATA_PATH)
 GRASS = np.tile(plt.imread(os.path.join(IMG_FOLDER, "grass.png")), (5, 5, 1))
@@ -223,6 +223,11 @@ class Driver:
     def get_comparison_from_feature_diff(self, feature_diff):
         p = expit(np.dot(feature_diff, self.reward_w)).item()
         feedback = np.random.choice([1, 0], p=[p, 1 - p])
+        return feedback
+
+    def get_hard_comparison_from_feature_diff(self, feature_diff):
+        p = expit(np.dot(feature_diff, self.reward_w)).item()
+        feedback = 1 if p >= 0.5 else 0
         return feedback
 
     def step(self, action):
@@ -614,6 +619,20 @@ class Driver:
             imgs.append(img)
         self.reset()
         return imgs
+
+    def get_trajectory_frames(self, trajectory):
+        ims = []
+        self.reset()
+        for step in range(trajectory.shape[0]):
+            self.state = trajectory[step, :4]
+            for car in self.cars:
+                car.update(self._update_state)
+            self.time += 1
+            done = bool(self.time >= self.episode_length)
+            reward = self._get_reward_for_state()
+            self._update_history()
+            ims.append(self.render("rgb_array"))
+        return ims
 
     def close(self):
         if self.viewer:
