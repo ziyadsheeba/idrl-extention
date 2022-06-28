@@ -64,6 +64,8 @@ def run_app(
     # Set all app states
     if "env" not in st.session_state:
         st.session_state["env"] = get_driver_target_velocity()
+        st.info("Environment Initialized")
+
     if "reward_model" not in st.session_state:
         st.session_state["reward_model"] = LinearLogisticRewardModel(
             dim=dimensionality,
@@ -72,6 +74,8 @@ def run_app(
             x_min=x_min,
             x_max=x_max,
         )
+        st.info("Reward Model Initialized")
+
     if "agent" not in st.session_state:
         st.session_state["agent"] = Agent(
             query_expert=st.session_state["env"].get_comparison_from_feature_diff,
@@ -80,7 +84,7 @@ def run_app(
             get_optimal_policy=st.session_state["env"].get_optimal_policy,
             get_query_from_policies=st.session_state["env"].get_query_from_policies,
             precomputed_policy_path=DRIVER_PRECOMPUTED_POLICIES_PATH / "policies.pkl",
-            reward_model=reward_model,
+            reward_model=st.session_state["reward_model"],
             num_candidate_policies=num_candidate_policies,
             idrl=idrl,
             candidate_policy_update_rate=candidate_policy_update_rate,
@@ -88,10 +92,12 @@ def run_app(
             use_trajectories=trajectory_query,
             num_query=num_query,
         )
+        st.info("Agent Initialized")
 
     if "policies" not in st.session_state:
         with open(f"{str(DRIVER_PRECOMPUTED_POLICIES_PATH)}/policies.pkl", "rb") as f:
             st.session_state["policies"] = pickle.load(f)
+        st.info("Precomputed Policies Loaded")
     if "step" not in st.session_state:
         st.session_state["step"] = 0
     if "queries" not in st.session_state:
@@ -114,9 +120,6 @@ def run_app(
             "agent"
         ].optimize_query(
             algorithm=algorithm,
-            rollout_queries=rollout_queries,
-            v=v,
-            trajectories=trajectory_query,
         )
         st.session_state["queries"] = (queried_states[0], queried_states[1])
         st.session_state["query_best"] = query_best
