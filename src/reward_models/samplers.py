@@ -52,3 +52,5 @@ if __name__ == "__main__":
         """
         return np.exp(-np.sum((x - mean)**2, axis=1) / 2 / sigma**2)
 
+    
+
