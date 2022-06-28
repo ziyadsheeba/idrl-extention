@@ -27,6 +27,8 @@ pandas = "*"
 dvc = "*"
 mlflow = "*"
 loky = "*"
+streamlit = "*"
+opencv-python = "==4.3.0.36"
 
 [dev-packages]
 
