@@ -28,7 +28,7 @@ dvc = "*"
 mlflow = "*"
 loky = "*"
 streamlit = "*"
-opencv-python = "*"
+opencv-python = "==4.3.0.36"
 
 [dev-packages]
 

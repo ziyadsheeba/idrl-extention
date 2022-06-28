@@ -14,7 +14,7 @@ N_POLICIES = 1000
 
 def compute_optimal_policy(theta):
     env = get_driver_target_velocity()
-    policy, *_ = env.get_optimal_policy(theta=theta)
+    policy = env.get_optimal_policy(theta=theta)
     return policy
 
 
