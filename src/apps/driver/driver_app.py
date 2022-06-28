@@ -29,7 +29,7 @@ from src.linear.driver_config import (
     X_MAX,
     X_MIN,
 )
-from src.linear.experiments_driver import Agent
+from src.agents.linear_agent import LinearAgent as Agent
 from src.reward_models.logistic_reward_models import (
     LinearLogisticRewardModel,
     LogisticRewardModel,
@@ -64,6 +64,8 @@ def run_app(
     # Set all app states
     if "env" not in st.session_state:
         st.session_state["env"] = get_driver_target_velocity()
+        st.info("Environment Initialized")
+
     if "reward_model" not in st.session_state:
         st.session_state["reward_model"] = LinearLogisticRewardModel(
             dim=dimensionality,
@@ -72,16 +74,30 @@ def run_app(
             x_min=x_min,
             x_max=x_max,
         )
+        st.info("Reward Model Initialized")
+
     if "agent" not in st.session_state:
         st.session_state["agent"] = Agent(
-            query_expert=st.session_state["env"].get_hard_comparison_from_feature_diff,
+            query_expert=st.session_state["env"].get_comparison_from_feature_diff,
             state_to_features=st.session_state["env"].get_query_features,
+            estimate_state_visitation=st.session_state["env"].estimate_state_visitation,
+            get_optimal_policy=st.session_state["env"].get_optimal_policy,
+            get_query_from_policies=st.session_state["env"].get_query_from_policies,
+            precomputed_policy_path=DRIVER_PRECOMPUTED_POLICIES_PATH / "policies.pkl",
             reward_model=st.session_state["reward_model"],
+            num_candidate_policies=num_candidate_policies,
+            idrl=idrl,
+            candidate_policy_update_rate=candidate_policy_update_rate,
             state_space_dim=dimensionality,
+            use_trajectories=trajectory_query,
+            num_query=num_query,
         )
+        st.info("Agent Initialized")
+
     if "policies" not in st.session_state:
         with open(f"{str(DRIVER_PRECOMPUTED_POLICIES_PATH)}/policies.pkl", "rb") as f:
             st.session_state["policies"] = pickle.load(f)
+        st.info("Precomputed Policies Loaded")
     if "step" not in st.session_state:
         st.session_state["step"] = 0
     if "queries" not in st.session_state:
@@ -96,69 +112,14 @@ def run_app(
         st.session_state["true_label"] = None
     if "labeling_disagreement" not in st.session_state:
         st.session_state["labeling_disagreement"] = 0
+    if "true_optimal_policy_video" not in st.session_state:
+        st.session_state["true_optimal_policy_video"] = None
 
     def generate_query():
-        if st.session_state["step"] % candidate_policy_update_rate == 0 and idrl:
-            print("Computing Candidate Policies")
-            print(f"Estimated time: {5.1*num_candidate_policies/60} minutes")
-
-            # sample parameters
-            assert num_candidate_policies > 1, "idrl requires more than 1 policy"
-            sampled_params = st.session_state["agent"].sample_parameters(
-                n_samples=num_candidate_policies
-            )
-
-            # get optimal policy wrt to each sampled parameter
-            sampled_optimal_policies = []
-            for theta in sampled_params:
-                policy, *_ = st.session_state["env"].get_optimal_policy(theta=theta)
-                sampled_optimal_policies.append(policy)
-
-            # get the mean state visitation difference between policies
-            svf_diff_mean, state_support = st.session_state[
-                "env"
-            ].estimate_pairwise_svf_mean(sampled_optimal_policies)
-            features = [
-                st.session_state["env"].get_query_features(x.squeeze().tolist())
-                for x in state_support
-            ]
-            features = np.array(features)
-            v = features.T @ svf_diff_mean
-        else:
-            v = None
-
-        if trajectory_query:
-            # sample the precomputed policies
-            if num_query > len(st.session_state["policies"]):
-                raise ValueError(
-                    "The number of queries cannot be met. Increase the number of precomputed policies"
-                )
-            idx = np.random.choice(
-                len(st.session_state["policies"]), size=num_query, replace=False
-            )
-            _policies = [st.session_state["policies"][i] for i in idx]
-            rollout_queries = st.session_state["env"].get_queries_from_policies(
-                _policies, return_trajectories=True
-            )
-        else:
-            # sample the precomputed policies
-            idx = np.random.choice(
-                len(st.session_state["policies"]),
-                size=num_query // st.session_state["env"].episode_length,
-                replace=False,
-            )
-            _policies = [st.session_state["policies"][i] for i in idx]
-            rollout_queries = st.session_state["env"].get_queries_from_policies(
-                _policies, return_trajectories=False
-            )
-
         query_best, true_label, utility, queried_states = st.session_state[
             "agent"
         ].optimize_query(
             algorithm=algorithm,
-            rollout_queries=rollout_queries,
-            v=v,
-            trajectories=trajectory_query,
         )
         st.session_state["queries"] = (queried_states[0], queried_states[1])
         st.session_state["query_best"] = query_best
@@ -186,7 +147,7 @@ def run_app(
 
     def get_current_optimal_policy_video():
         theta_hat = st.session_state["agent"].get_parameters_estimate().squeeze()
-        policy, *_ = st.session_state["env"].get_optimal_policy(theta=theta_hat)
+        policy = st.session_state["env"].get_optimal_policy(theta=theta_hat)
         st.session_state["optimal_policy"] = policy
         frames = st.session_state["env"].get_policy_frames(policy)
         save_video(frames, str(TMP_PATH / "optimal_policy.mp4"))
@@ -200,6 +161,15 @@ def run_app(
             label == st.session_state["true_label"]
         )
 
+    def get_true_optimal_policy_video():
+        if st.session_state["true_optimal_policy_video"] is None:
+            policy = st.session_state["env"].get_optimal_policy()
+            frames = st.session_state["env"].get_policy_frames(policy)
+            save_video(frames, str(TMP_PATH / "true_optimal_policy.mp4"))
+            video_bytes = open(str(TMP_PATH / "true_optimal_policy.mp4"), "rb").read()
+            st.session_state["true_optimal_policy_video"] = video_bytes
+        return st.session_state["true_optimal_policy_video"]
+
     with st.form(key="trajectory labeling"):
 
         st.header("Trajectory Labeling")
@@ -207,21 +177,32 @@ def run_app(
         done_generate_query = st.columns(1)[0]
         c_trajectory_1, c_trajectory_2 = st.columns((1, 1))
         label = st.radio("Better Trajectory", ["Left", "Right"])
-        submit_query = st.form_submit_button("Submit Query")
+        submit_query = st.form_submit_button("Submit Feedback")
 
         st.header("Current Optimal Policy")
-        c_show_optimal_policy = st.columns(1)[0]
         done_show_optimal_policy = st.columns(1)[0]
-        c_optimal_policy = st.columns(1)[0]
+        c_optimal_policy, c_true_optimal_policy = st.columns((1, 1))
 
         if st.session_state["query_count"] == 0 or submit_query:
             with st.spinner("Generating Query and Optimal Policy..."):
-                c_optimal_policy.video(get_current_optimal_policy_video())
-                done_show_optimal_policy.success("Done!")
+
+                c_optimal_policy.subheader("Estimated Policy")
+                c_true_optimal_policy.subheader("True Optimal Policy")
+
+                current_opt_policy = get_current_optimal_policy_video()
+                true_opt_policy = get_true_optimal_policy_video()
+
                 video_1, video_2 = generate_query()
+
                 c_trajectory_1.video(video_1)
                 c_trajectory_2.video(video_2)
+
+                c_optimal_policy.video(current_opt_policy)
+                c_true_optimal_policy.video(true_opt_policy)
+
                 done_generate_query.success("Done!")
+                done_show_optimal_policy.success("Done!")
+
         if submit_query:
             if label == "Left":
                 update_agent(1)
@@ -231,12 +212,14 @@ def run_app(
                 raise ValueError()
             with st.sidebar:
                 st.metric("Number of Queries", st.session_state["query_count"])
-                st.metric("Labeling Disagreement", st.session_state["labeling_disagreement"])
+                st.metric(
+                    "Labeling Disagreement", st.session_state["labeling_disagreement"]
+                )
 
 
 if __name__ == "__main__":
     os.makedirs(TMP_PATH, exist_ok=True)
-    st.title("Driver Environment Trajectory Comparisons")
+    st.title("Information Directed Preference Learning")
     try:
         run_app(
             algorithm=ALGORITHM,
