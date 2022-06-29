@@ -10,6 +10,7 @@ import shutil
 import matplotlib.pyplot as plt
 import numpy as np
 
+from src.agents.linear_agent import LinearAgent as Agent
 from src.constants import DRIVER_PRECOMPUTED_POLICIES_PATH
 from src.envs.driver import get_driver_target_velocity
 from src.linear.driver_config import (
@@ -29,7 +30,6 @@ from src.linear.driver_config import (
     X_MAX,
     X_MIN,
 )
-from src.agents.linear_agent import LinearAgent as Agent
 from src.reward_models.logistic_reward_models import (
     LinearLogisticRewardModel,
     LogisticRewardModel,
@@ -118,9 +118,7 @@ def run_app(
     def generate_query():
         query_best, true_label, utility, queried_states = st.session_state[
             "agent"
-        ].optimize_query(
-            algorithm=algorithm,
-        )
+        ].optimize_query(algorithm=algorithm, n_jobs=4)
         st.session_state["queries"] = (queried_states[0], queried_states[1])
         st.session_state["query_best"] = query_best
         st.session_state["true_label"] = true_label
@@ -175,13 +173,13 @@ def run_app(
         st.header("Trajectory Labeling")
         c_generate_query = st.columns(1)[0]
         done_generate_query = st.columns(1)[0]
-        c_trajectory_1, c_trajectory_2 = st.columns((1, 1))
+        c_trajectory_1, c_trajectory_2 = st.columns(2)
         label = st.radio("Better Trajectory", ["Left", "Right"])
         submit_query = st.form_submit_button("Submit Feedback")
 
         st.header("Current Optimal Policy")
         done_show_optimal_policy = st.columns(1)[0]
-        c_optimal_policy, c_true_optimal_policy = st.columns((1, 1))
+        c_optimal_policy, c_true_optimal_policy = st.columns(2)
 
         if st.session_state["query_count"] == 0 or submit_query:
             with st.spinner("Generating Query and Optimal Policy..."):
