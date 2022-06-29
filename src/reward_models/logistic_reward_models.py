@@ -12,6 +12,7 @@ from src.reward_models.approximate_posteriors import (
     ApproximatePosterior,
     LaplaceApproximation,
 )
+from src.reward_models.samplers import MALA
 from src.utils import bernoulli_entropy, matrix_inverse, multivariate_normal_sample
 
 
@@ -55,6 +56,7 @@ class LinearLogisticRewardModel(LogisticRewardModel):
         param_norm: float = 1,
         prior_mean: np.ndarray = None,
         approximation: str = "laplace",
+        mcmc_sampler: str = "mala",
     ):
         """_summary_
 
@@ -65,7 +67,8 @@ class LinearLogisticRewardModel(LogisticRewardModel):
             x_max (Union[List[float], float]): The maximum state (in terms of the norm), full list or coordinate wise bound.
             param_norm (float, optional): The parameter norm bound. Defaults to 1.
             prior_mean (np.ndarray, optional): The prior mean for the parameter vector. Defaults to None.
-            approximation (str, optional): The appproximation algorithm. Defaults to "laplace".
+            approximation (str, optional): The approximation algorithm. Defaults to "laplace".
+            sampler(str, optional): The mcmc sampler to be used. defaults to "mala"".
 
         Raises:
             NotImplementedError: If approximate posterior is not implemented.
@@ -106,11 +109,18 @@ class LinearLogisticRewardModel(LogisticRewardModel):
             raise NotImplementedError(
                 f"The approximation '{approximation}' is not implemented."
             )
+        if mcmc_sampler == "mala":
+            self.sampler = MALA(
+                dim=dim,
+                posterior=self.posterior,
+                neglog_posterior_gradient=self.neglog_posterior_gradient,
+                L=0.5,
+            )
 
     def neglog_posterior(
         self, theta: np.ndarray, y: np.ndarray = None, X: np.ndarray = None
     ) -> float:
-        """Returns the negative log posterior excluding the normalization factor.
+        """Returns the negative log posterior excluding up to normalization constant.
 
         Args:
             theta (np.ndarray): The parameter vector.
@@ -122,25 +132,54 @@ class LinearLogisticRewardModel(LogisticRewardModel):
         """
         if theta.shape == (self.dim,):
             theta = np.expand_dims(theta, axis=-1)
-
-        if y is None and X is None:
-            X = np.concatenate(self.X, axis=0)
-            y = np.array(self.y)
-        elif (y is None and X is not None) or (X is None and y is not None):
-            raise ValueError("Specificy X and y, or neither of them.")
-
-        eps = 1e-10
-        y_hat = expit(X @ theta).squeeze()
         neg_logprior = (
             0.5
             * (theta - self.prior_mean).T
             @ self.prior_precision
             @ (theta - self.prior_mean)
         ).item()
+        if y is None and X is None:
+            if len(self.X) > 0:
+                X = np.concatenate(self.X, axis=0)
+                y = np.array(self.y)
+            else:
+                assert len(self.y) == 0, "No covariates by labels exist in memory"
+                return neg_logprior
+        elif (y is None and X is not None) or (X is None and y is not None):
+            raise ValueError("Specificy X and y, or neither of them.")
+
+        eps = 1e-10
+        y_hat = expit(X @ theta).squeeze()
         neg_loglikelihood = (
             -np.sum(y * np.log(y_hat + eps) + (1 - y) * np.log(1 - y_hat + eps))
         ).item()
         return neg_logprior + neg_loglikelihood
+
+    def neglog_posterior_gradient(
+        self, theta: np.ndarray, y: np.ndarray = None, X: np.ndarray = None
+    ):
+        if theta.shape == (self.dim,):
+            theta = np.expand_dims(theta, axis=-1)
+        grad_neglog_prior = self.prior_precision @ (theta - self.prior_mean)
+        if y is None and X is None:
+            if len(self.X) > 0:
+                X = np.concatenate(self.X, axis=0)
+                y = np.array(self.y)
+            else:
+                assert len(self.y) == 0, "No covariates by labels exist in memory"
+                return grad_neglog_prior.squeeze()
+
+        elif (y is None and X is not None) or (X is None and y is not None):
+            raise ValueError("Specificy X and y, or neither of them.")
+
+        y_hat = expit(X @ theta).squeeze()
+        grad_neglog_likelihood = -np.sum(X * np.expand_dims(y - y_hat, axis=1))
+        return grad_neglog_prior.squeeze() + grad_neglog_likelihood.squeeze()
+
+    def posterior(
+        self, theta: np.ndarray, y: np.ndarray = None, X: np.ndarray = None
+    ) -> float:
+        return np.exp(-self.neglog_posterior(theta=theta, y=y, X=X))
 
     def get_likelihood(self, x: np.ndarray, y: int, theta: np.ndarray) -> float:
         """Returns the likelihood of observing (x,y) under the given theta.
@@ -298,10 +337,21 @@ class LinearLogisticRewardModel(LogisticRewardModel):
         X = np.concatenate(X)
         return self.neglog_posterior_hessian(theta, X)
 
-    def sample_current_approximate_distribution(
-        self, n_samples=1, approximation: str = "laplace"
-    ):
+    def sample_current_approximate_distribution(self, n_samples=1):
         return self.approximate_posterior.sample(n_samples)
+
+    def sample_mcmc(self, n_samples) -> np.ndarray:
+        """Samples from the given mcmc sampler. Initializes the sampler by the posterior mode.
+
+        Args:
+            n_samples (_type_): number of samples
+
+        Returns:
+            np.ndarray: Samples from the true posterior.
+        """
+        return self.sampler.sample(
+            n_samples=n_samples, x_init=self.get_parameters_estimate().squeeze()
+        )
 
     def get_approximate_predictive_distribution(
         self, x: np.ndarray, method="sampling", n_samples: int = None

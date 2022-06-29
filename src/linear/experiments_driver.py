@@ -62,6 +62,8 @@ def simultate(
 ):
     env = get_driver_target_velocity()
     optimal_policy = env.get_optimal_policy()
+    r_optimal = env.simulate(optimal_policy)
+
     policy_regret = {}
     cosine_distance = {}
 
@@ -96,22 +98,22 @@ def simultate(
     with tqdm(range(simulation_steps), unit="step") as steps:
         for step in steps:
             query_best, label, utility, queried_states = agent.optimize_query(
-                algorithm=algorithm,
+                algorithm=algorithm, n_jobs=8
             )
             agent.update_belief(query_best, label)
 
             # compute policy_regret and cosine similarity
             theta_hat = agent.get_parameters_estimate().squeeze()
-            theta_hat = (
-                theta_hat / np.linalg.norm(theta_hat)
-                if np.linalg.norm(theta_hat) > 0
-                else theta_hat
-            )
-            env_estimate = get_driver_target_velocity(reward_weights=theta_hat)
-            estimated_policy = env_estimate.get_optimal_policy()
-            r_estimate = env_estimate.simulate(estimated_policy)
-            r_optimal = env_estimate.simulate(optimal_policy)
-            policy_regret[step] = np.abs(r_estimate - r_optimal)
+            # theta_hat = (
+            #     theta_hat / np.linalg.norm(theta_hat)
+            #     if np.linalg.norm(theta_hat) > 0
+            #     else theta_hat
+            # )
+            # env_estimate = get_driver_target_velocity(reward_weights=theta_hat)
+            estimated_policy = env.get_optimal_policy(theta=theta_hat)
+            # r_estimate = env_estimate.simulate(estimated_policy)
+            r_estimate = env.simulate(estimated_policy)
+            policy_regret[step] = r_optimal - r_estimate
             cosine_distance[step] = (
                 spatial.distance.cosine(theta_true, theta_hat)
                 if np.linalg.norm(theta_hat) > 0
