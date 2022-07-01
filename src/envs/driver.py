@@ -434,6 +434,7 @@ class Driver:
             c_features += self.get_constraint_features()
         return r_features, c_features
 
+    @timeit
     def get_optimal_policy(self, theta=None, restarts=30, n_action_repeat=10):
         a_dim = self.action_d
         eps = 1e-5
@@ -464,112 +465,6 @@ class Driver:
         for i in range(n_policy_steps):
             policy_repeat.extend([optimal_policy[2 * i : 2 * i + 2]] * n_action_repeat)
         return np.array(policy_repeat)
-
-    # def get_optimal_policy(
-    #     self,
-    #     phi=None,
-    #     threshold=0,
-    #     theta=None,
-    #     n_action_repeat=1,
-    #     iterations=50,
-    #     n_candidates=50,
-    #     n_elite=5,
-    #     verbose=False,
-    # ):
-    #     """Implements a cross entropy method for (constrained) policy optimization.
-
-    #     If phi is given to define a constraint function, the ordering defined by [1]
-    #     is used to determine elite policies. Otherwise an ordering by rewards is used,
-    #     i.e. the algorithm defaults to a vanilla CE method.
-
-    #     [1] Wen, Min, and Ufuk Topcu. "Constrained cross-entropy method for safe
-    #         reinforcement learning." IEEE Transactions on Automatic Control (2020).
-    #     """
-    #     a_dim = self.action_d
-    #     n_policy_steps = self.episode_length // n_action_repeat
-
-    #     a_low = np.array(list(self.action_min) * n_policy_steps)
-    #     a_high = np.array(list(self.action_max) * n_policy_steps)
-
-    #     if theta is None:
-    #         theta = self.reward_w
-    #     if phi is None:
-    #         phi = self.constraint_w
-    #         threshold = self.threshold
-
-    #     if verbose:
-    #         print("theta", theta)
-    #         print("phi", phi)
-    #         print("threshold", threshold)
-
-    #     mu = np.zeros(n_policy_steps * a_dim)
-    #     std = 5 * np.ones(n_policy_steps * a_dim)
-
-    #     optimal_policy = mu
-    #     optimal_rew = -np.inf
-
-    #     for i in range(iterations):
-    #         if verbose:
-    #             print("iteration", i)
-
-    #         policies = []
-    #         rewards = []
-    #         constraints = []
-
-    #         for j in range(n_candidates):
-    #             policy = mu + std * np.random.randn(n_policy_steps * a_dim)
-    #             policy = np.clip(policy, a_low, a_high)
-    #             policies.append(policy)
-    #             r_features, c_features = self._get_features_from_flat_policy(policy)
-    #             reward = np.dot(r_features, theta)
-    #             rewards.append(reward)
-    #             if phi is not None:
-    #                 constraint = np.dot(c_features, phi)
-    #                 constraints.append(constraint)
-    #             if reward > optimal_rew and (phi is None or constraint <= threshold):
-    #                 # this works because dynamics are deterministic
-    #                 optimal_policy = policy
-    #                 optimal_rew = reward
-
-    #         if phi is None:
-    #             # unconstrained optimization
-    #             idx = np.argsort(rewards)[::-1]
-    #             elite = [policies[k] for k in idx[:n_elite]]
-    #         else:
-    #             idx = np.argsort(constraints)
-    #             if constraints[idx[n_elite - 1]] > threshold:
-    #                 elite = [policies[k] for k in idx[:n_elite]]
-    #             else:
-    #                 feasible = [
-    #                     k for k in range(n_candidates) if constraints[k] <= threshold
-    #                 ]
-    #                 feasible = sorted(feasible, key=lambda k: -rewards[k])
-    #                 elite = [policies[k] for k in feasible[:n_elite]]
-
-    #         mu = np.array(elite).mean(axis=0)
-    #         std = np.array(elite).std(axis=0)
-
-    #         if verbose:
-    #             print("mu", mu)
-    #             print("std", std)
-
-    #     r_features, c_features = self._get_features_from_flat_policy(optimal_policy)
-
-    #     if verbose:
-    #         print()
-    #         print("optimal_policy", optimal_policy)
-    #         print("f_reward", r_features)
-    #         print("rew", np.dot(r_features, theta))
-    #         if phi is not None:
-    #             print("f_constraint", c_features)
-    #             print("cons", np.dot(c_features, phi))
-    #         print()
-
-    #     policy_repeat = []
-    #     for i in range(n_policy_steps):
-    #         policy_repeat.extend([optimal_policy[2 * i : 2 * i + 2]] * n_action_repeat)
-
-    #     return np.array(policy_repeat), r_features, c_features
 
     def render(self, mode="human"):
         if mode not in ("human", "rgb_array", "human_static"):
@@ -835,7 +730,7 @@ class Driver:
         if return_trajectories:
             return np.stack(trajectories, axis=2)
         else:
-            return np.unique(np.concatenate(trajectories), axis=0)
+            return np.unique(np.vstack(trajectories), axis=0)
 
     def plot_history(self):
         x_player = []

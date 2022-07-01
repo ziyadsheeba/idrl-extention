@@ -28,6 +28,7 @@ def acquisition_function_random(
     candidate_queries: Union[List[np.ndarray], np.ndarray],
     return_utility: bool = True,
     return_argmax: bool = True,
+    n_jobs: int = 1,
 ) -> Union[
     np.ndarray,
     List[Union[np.ndarray, np.ndarray]],
