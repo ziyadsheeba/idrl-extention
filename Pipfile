@@ -29,6 +29,7 @@ mlflow = "*"
 loky = "*"
 streamlit = "*"
 opencv-python = "==4.3.0.36"
+idrl-extention = {editable = true, path = "."}
 
 [dev-packages]
 
