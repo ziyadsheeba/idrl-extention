@@ -1,2 +1,6 @@
 ./experiments
 ./notebooks
+./mlruns
+./build/
+__pycache__/
+*.py[cod]
