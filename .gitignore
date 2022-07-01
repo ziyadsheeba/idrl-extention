@@ -2,5 +2,6 @@
 ./notebooks
 ./mlruns
 ./build/
+./env_policies
 __pycache__/
 *.py[cod]
