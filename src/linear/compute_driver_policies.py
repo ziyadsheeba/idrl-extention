@@ -6,7 +6,13 @@ import tqdm
 
 from src.constants import DRIVER_PRECOMPUTED_POLICIES_PATH
 from src.envs.driver import get_driver_target_velocity
-from src.linear.driver_config import DIMENSIONALITY, PRIOR_VARIANCE_SCALE, THETA_NORM
+from src.linear.driver_config import (
+    DIMENSIONALITY,
+    PRIOR_VARIANCE_SCALE,
+    THETA_NORM,
+    X_MAX,
+    X_MIN,
+)
 from src.reward_models.logistic_reward_models import LinearLogisticRewardModel
 
 N_POLICIES = 1000
@@ -25,6 +31,8 @@ def main():
         dim=DIMENSIONALITY,
         prior_variance=PRIOR_VARIANCE_SCALE * (THETA_NORM) ** 2 / 2,
         param_norm=THETA_NORM,
+        x_min=X_MIN,
+        x_max=X_MAX,
     )
 
     # sample from the prior distribution

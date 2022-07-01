@@ -114,7 +114,6 @@ class LinearLogisticRewardModel(LogisticRewardModel):
                 dim=dim,
                 posterior=self.posterior,
                 neglog_posterior_gradient=self.neglog_posterior_gradient,
-                L=0.5,
             )
 
     def neglog_posterior(
@@ -350,7 +349,8 @@ class LinearLogisticRewardModel(LogisticRewardModel):
             np.ndarray: Samples from the true posterior.
         """
         return self.sampler.sample(
-            n_samples=n_samples, x_init=self.get_parameters_estimate().squeeze()
+            n_samples=n_samples,
+            x_init=copy.deepcopy(self.get_parameters_estimate().squeeze()),
         )
 
     def get_approximate_predictive_distribution(

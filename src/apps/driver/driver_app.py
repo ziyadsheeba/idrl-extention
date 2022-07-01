@@ -1,5 +1,6 @@
 import os
 import pickle
+import tempfile
 from pathlib import Path
 
 import streamlit as st
@@ -38,8 +39,8 @@ from src.utils import save_video
 
 FILE_PATH = Path(os.path.abspath(__file__))
 APP_DIR_PATH = FILE_PATH.parent
-TMP_PATH = APP_DIR_PATH / "tmp"
 CSS_PATH = APP_DIR_PATH / "style.css"
+tmp_path = None
 
 
 def run_app(
@@ -131,10 +132,10 @@ def run_app(
             trajectory_frames_2 = st.session_state["env"].get_trajectory_frames(
                 queried_states[1]
             )
-            save_video(trajectory_frames_1, str(TMP_PATH / "trajectory_1.mp4"))
-            save_video(trajectory_frames_2, str(TMP_PATH / "trajectory_2.mp4"))
-            video_bytes_1 = open(str(TMP_PATH / "trajectory_1.mp4"), "rb").read()
-            video_bytes_2 = open(str(TMP_PATH / "trajectory_2.mp4"), "rb").read()
+            save_video(trajectory_frames_1, str(tmp_path / "trajectory_1.mp4"))
+            save_video(trajectory_frames_2, str(tmp_path / "trajectory_2.mp4"))
+            video_bytes_1 = open(str(tmp_path / "trajectory_1.mp4"), "rb").read()
+            video_bytes_2 = open(str(tmp_path / "trajectory_2.mp4"), "rb").read()
             return video_bytes_1, video_bytes_2
 
         else:
@@ -148,8 +149,8 @@ def run_app(
         policy = st.session_state["env"].get_optimal_policy(theta=theta_hat)
         st.session_state["optimal_policy"] = policy
         frames = st.session_state["env"].get_policy_frames(policy)
-        save_video(frames, str(TMP_PATH / "optimal_policy.mp4"))
-        video_bytes = open(str(TMP_PATH / "optimal_policy.mp4"), "rb").read()
+        save_video(frames, str(tmp_path / "optimal_policy.mp4"))
+        video_bytes = open(str(tmp_path / "optimal_policy.mp4"), "rb").read()
         return video_bytes
 
     def update_agent(label):
@@ -163,8 +164,8 @@ def run_app(
         if st.session_state["true_optimal_policy_video"] is None:
             policy = st.session_state["env"].get_optimal_policy()
             frames = st.session_state["env"].get_policy_frames(policy)
-            save_video(frames, str(TMP_PATH / "true_optimal_policy.mp4"))
-            video_bytes = open(str(TMP_PATH / "true_optimal_policy.mp4"), "rb").read()
+            save_video(frames, str(tmp_path / "true_optimal_policy.mp4"))
+            video_bytes = open(str(tmp_path / "true_optimal_policy.mp4"), "rb").read()
             st.session_state["true_optimal_policy_video"] = video_bytes
         return st.session_state["true_optimal_policy_video"]
 
@@ -216,7 +217,9 @@ def run_app(
 
 
 if __name__ == "__main__":
-    os.makedirs(TMP_PATH, exist_ok=True)
+    temp_dir = tempfile.TemporaryDirectory()
+    tmp_path = Path(temp_dir.name)
+
     st.title("Information Directed Preference Learning")
     try:
         run_app(
@@ -235,4 +238,4 @@ if __name__ == "__main__":
             trajectory_query=TRAJECTORY_QUERY,
         )
     except:
-        shutil.rmtree(TMP_PATH)
+        temp_dir.cleanup()

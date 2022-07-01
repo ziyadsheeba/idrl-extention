@@ -1,10 +1,10 @@
 import pickle
+from multiprocessing import Pool
 from pathlib import Path
 from typing import Callable, List, Tuple
 
 import numpy as np
 import pandas as pd
-from joblib import Parallel, delayed
 
 from src.aquisition_functions.aquisition_functions import (
     acquisition_function_bounded_ball_map,
@@ -21,6 +21,7 @@ from src.reward_models.logistic_reward_models import (
     LogisticRewardModel,
 )
 from src.utils import get_pairs_from_list, multivariate_normal_sample
+import tqdm
 
 
 class LinearAgent:
@@ -89,9 +90,9 @@ class LinearAgent:
         states = svf.index.tolist()
         svf = [svf[column].to_numpy() for column in svf.columns]
         svf = get_pairs_from_list(svf)
-        svf_diff = [a - b for a, b in svf]
+        svf_diff = [np.abs(a - b) for a, b in svf]  # TO CHECK
         svf_diff_mean = np.mean(svf_diff, axis=0)
-        states = np.array(list(map(np.frombuffer, states)))
+        states = np.vstack(list(map(np.frombuffer, states)))
         return np.expand_dims(svf_diff_mean, axis=1), states
 
     def get_candidate_policies(
@@ -102,11 +103,12 @@ class LinearAgent:
                 n_samples=self.num_candidate_policies, method="mcmc"
             )
             policies = []
-            policies = Parallel(n_jobs=n_jobs, backend="multiprocessing")(
-                delayed(self.get_optimal_policy)(theta=param)
-                for param in sampled_params
-            )
-
+            pool = Pool(processes=n_jobs)
+            for policy in tqdm.tqdm(
+                pool.imap_unordered(self.get_optimal_policy, sampled_params),
+                total=len(sampled_params),
+            ):
+                policies.append(policy)
         else:
             raise NotImplementedError()
         return policies
@@ -116,8 +118,9 @@ class LinearAgent:
         policies = self.get_candidate_policies(n_jobs=n_jobs)
         svf_diff_mean, state_support = self.estimate_pairwise_svf_mean(policies)
         features = [self.state_to_features(x.squeeze().tolist()) for x in state_support]
-        features = np.array(features)
-        v = features.T @ svf_diff_mean
+        features = np.vstack(features)
+        # Normalize by the sum to get svf on a simplex, i.e convex combination
+        v = features.T @ svf_diff_mean / svf_diff_mean.sum()
         return v
 
     def get_candidate_queries(self):
@@ -137,7 +140,7 @@ class LinearAgent:
                 size=self.num_query,
                 replace=False,
             )
-            _policies = [policies[i] for i in idx]
+            _policies = [self.precomputed_policies[i] for i in idx]
             queries = self.get_query_from_policies(_policies, return_trajectories=False)
             idx = np.random.choice(
                 len(queries),
