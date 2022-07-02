@@ -1,6 +1,6 @@
-./experiments
-./notebooks
-./mlruns
+./experiments/
+./notebooks/
+./mlruns/
 ./build/
 ./env_policies
 __pycache__/

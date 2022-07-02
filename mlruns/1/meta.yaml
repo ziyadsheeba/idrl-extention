@@ -1,4 +1,0 @@
-artifact_location: file:///home/visium/Desktop/thesis/idrl-extention/mlruns/1
-experiment_id: '1'
-lifecycle_stage: active
-name: driver/current_map_hessian
