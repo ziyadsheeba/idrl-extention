@@ -1,0 +1,15 @@
+artifact_uri: file:///home/visium/Desktop/thesis/idrl-extention/mlruns/1/8f8f0e57cac1448696d115792bea5ee3/artifacts
+end_time: 1656435910567
+entry_point_name: ''
+experiment_id: '1'
+lifecycle_stage: deleted
+name: ''
+run_id: 8f8f0e57cac1448696d115792bea5ee3
+run_uuid: 8f8f0e57cac1448696d115792bea5ee3
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1656435820951
+status: 4
+tags: []
+user_id: visium

@@ -1,0 +1,4 @@
+artifact_location: file:///home/visium/Desktop/thesis/idrl-extention/mlruns/2
+experiment_id: '2'
+lifecycle_stage: active
+name: driver/random
