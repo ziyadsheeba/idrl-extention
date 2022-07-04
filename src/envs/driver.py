@@ -212,14 +212,6 @@ class Driver:
             state = self.state
         return np.dot(self.reward_w, self.get_reward_features(state))
 
-    def get_comparison_for_states(self, state1, state2):
-        feat1 = self.get_reward_features(state1)
-        feat2 = self.get_reward_features(state2)
-        feat_delta = feat1 - feat2
-        p = expit(np.dot(feat_delta, self.reward_w)).item()
-        feedback = np.random.choice([1, 0], p=[p, 1 - p])
-        return feedback
-
     def get_comparison_from_feature_diff(self, feature_diff):
         p = expit(np.dot(feature_diff, self.reward_w)).item()
         feedback = np.random.choice([1, 0], p=[p, 1 - p])
@@ -244,41 +236,6 @@ class Driver:
         self._update_history()
         return np.array(self.state + [self.time]), reward, done, dict()
 
-    def estimate_state_visitation(self, policy: np.ndarray, n_rollouts: int = 1):
-        svf = {}
-        for _ in range(n_rollouts):
-            done = False
-            s = self.reset()
-            while not done:
-                a = policy[int(s[-1])]
-                s, _, done, _ = self.step(a)
-                s_query = s[:-1].tolist()
-                for car in self.cars:
-                    x, y, *_ = car.state
-                    s_query.append(x)
-                    s_query.append(y)
-                s_arr = np.array(s_query).reshape(1, len(s_query))
-                s_str = s_arr.tobytes()
-                if s_str in svf:
-                    svf[s_str] += 1 / n_rollouts
-                else:
-                    svf[s_str] = 1 / n_rollouts
-        return svf
-
-    def estimate_pairwise_svf_mean(self, policies: list) -> dict:
-        svf = []
-        for policy in policies:
-            svf.append(self.estimate_state_visitation(policy, n_rollouts=1))
-        svf = pd.DataFrame(svf).T
-        svf = svf.fillna(0)
-        states = svf.index.tolist()
-        svf = [svf[column].to_numpy() for column in svf.columns]
-        svf = get_pairs_from_list(svf)
-        svf_diff = [a - b for a, b in svf]
-        svf_diff_mean = np.mean(svf_diff, axis=0)
-        states = np.array(list(map(np.frombuffer, states)))
-        return np.expand_dims(svf_diff_mean, axis=1), states
-
     def reset(self):
         self.state = self.initial_state
         self.time = 0
@@ -287,16 +244,6 @@ class Driver:
         self.history = []
         self._update_history()
         return np.array(self.state + [self.time])
-
-    def simulate(self, policy) -> float:
-        done = False
-        s = self.reset()
-        r = 0
-        while not done:
-            a = policy[int(s[-1])]
-            s, reward, done, info = self.step(a)
-            r += reward
-        return reward
 
     def get_reward_features(self, state=None):
         return self._get_features(state=state)
@@ -347,57 +294,15 @@ class Driver:
             dtype=float,
         )
 
-    def get_query_features(self, query_state: list) -> np.ndarray:
-        """The query state differs from the
-
-        Args:
-            query_state (list): The query state. Integrates car distances in the states too, i.e
-                [x_post, y_pos, heading, velocity, car_dist1, car_dist2, ...]
-
-        Returns:
-            np.ndarray: The array of features.
-        """
-        x, y, theta, v, *cars_pos = query_state
-        assert len(cars_pos) == 2 * len(
-            self.cars
-        ), "car coordinates doesn't equal the number of cars"
-        cars_pos = [cars_pos[i : i + 2] for i in range(0, len(cars_pos), 2)]
-        off_street = int(np.abs(x) > self.roads[0].width / 2)
-
-        b = 10000
-        a = 10
-        d_to_lane = np.min([(x - 0.17) ** 2, x**2, (x + 0.17) ** 2])
-        not_in_lane = 1 / (1 + np.exp(-b * d_to_lane + a))
-
-        big_angle = np.abs(np.cos(theta))
-
-        drive_backward = int(v < 0)
-        too_fast = int(v > 0.6)
-
-        distance_to_other_car = 0
-        b = 30
-        a = 0.01
-        for car_coord in cars_pos:
-            distance_to_other_car += np.exp(
-                -b * (10 * ((car_coord[0] - x) ** 2 + (car_coord[1] - y) ** 2)) + b * a
-            )
-
-        keeping_speed = -np.square(v - 0.4)
-        target_location = -np.square(x - 0.17)
-
-        return np.array(
-            [
-                keeping_speed,
-                target_location,
-                off_street,
-                not_in_lane,
-                big_angle,
-                drive_backward,
-                too_fast,
-                distance_to_other_car,
-            ],
-            dtype=float,
-        )
+    def simulate(self, policy):
+        done = False
+        s = self.reset()
+        r = 0
+        while not done:
+            a = policy[int(s[-1])]
+            s, reward, done, info = self.step(a)
+            r += reward
+        return reward
 
     def _get_features_from_flat_policy(self, policy):
         a_dim = self.action_d
@@ -434,7 +339,14 @@ class Driver:
             c_features += self.get_constraint_features()
         return r_features, c_features
 
-    @timeit
+    def get_render_state(self):
+        render_state = copy.deepcopy(self.state)
+        for car in self.cars:
+            pos_x, pos_y, theta, vel = car.state
+            render_state.append(pos_x)
+            render_state.append(pos_y)
+        return render_state
+
     def get_optimal_policy(self, theta=None, restarts=30, n_action_repeat=10):
         a_dim = self.action_d
         eps = 1e-5
@@ -686,51 +598,6 @@ class Driver:
             )
 
         return fig
-
-    def sample_random_policies(self, n_policies: int) -> list:
-        """samples random policies.
-
-        Args:
-            n_policies (int): number of policies to sample
-
-        Returns:
-            list: list of policies.
-        """
-        policies = [
-            np.random.uniform(
-                low=self.action_min,
-                high=self.action_max,
-                size=(self.episode_length, len(self.action_min)),
-            )
-            for _ in range(n_policies)
-        ]
-        return policies
-
-    def get_query_from_policies(
-        self, policies: list, n_rollouts: int = 1, return_trajectories: bool = True
-    ):
-        trajectories = []
-        for policy in policies:
-            for i in range(n_rollouts):
-                done = False
-                s = self.reset()
-                r = 0
-                states = []
-                while not done:
-                    a = policy[int(s[-1])]
-                    s, reward, done, info = self.step(a)
-                    r += reward
-                    s_query = s[:-1].tolist()
-                    for car in self.cars:
-                        x, y, *_ = car.state
-                        s_query.append(x)
-                        s_query.append(y)
-                    states.append(np.array(s_query))
-                trajectories.append(np.vstack(states))
-        if return_trajectories:
-            return np.stack(trajectories, axis=2)
-        else:
-            return np.unique(np.vstack(trajectories), axis=0)
 
     def plot_history(self):
         x_player = []

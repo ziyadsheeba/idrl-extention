@@ -60,15 +60,10 @@ def simultate(
     idrl: bool,
     trajectory_query: bool,
 ):
-    env = get_driver_target_velocity()
-    optimal_policy = env.get_optimal_policy()
-    r_optimal = env.simulate(optimal_policy)
-
-    policy_regret = {}
-    cosine_distance = {}
-
     # true reward parameter
+    env = get_driver_target_velocity()
     theta_true = env.reward_w
+    optimal_policy = env.get_optimal_policy()
 
     # Initialize the reward model
     reward_model = LinearLogisticRewardModel(
@@ -81,10 +76,11 @@ def simultate(
     # Initialize the agents
     agent = Agent(
         query_expert=env.get_comparison_from_feature_diff,
-        state_to_features=env.get_query_features,
-        estimate_state_visitation=env.estimate_state_visitation,
+        state_to_features=env.get_reward_features,
+        state_to_render_state=env.get_render_state,
         get_optimal_policy=env.get_optimal_policy,
-        get_query_from_policies=env.get_query_from_policies,
+        env_step=env.step,
+        env_reset=env.reset,
         precomputed_policy_path=DRIVER_PRECOMPUTED_POLICIES_PATH / "policies.pkl",
         reward_model=reward_model,
         num_candidate_policies=num_candidate_policies,
@@ -95,13 +91,10 @@ def simultate(
         num_query=num_query,
     )
 
+    policy_regret = {}
+    cosine_distance = {}
     with tqdm(range(simulation_steps), unit="step") as steps:
         for step in steps:
-            query_best, label, utility, queried_states = agent.optimize_query(
-                algorithm=algorithm, n_jobs=8
-            )
-            agent.update_belief(query_best, label)
-
             # compute policy_regret and cosine similarity
             theta_hat = agent.get_parameters_estimate().squeeze()
             theta_hat = (
@@ -111,10 +104,13 @@ def simultate(
             )
             env_estimate = get_driver_target_velocity(reward_weights=theta_hat)
             estimated_policy = env_estimate.get_optimal_policy()
-            r_estimate = env_estimate.simulate(estimated_policy)
-            r_optimal = env_estimate.simulate(optimal_policy)
-            r_diff = r_estimate - r_optimal
+            # r_estimate = env_estimate.simulate(estimated_policy)
+            # r_optimal = env_estimate.simulate(optimal_policy)
+            # r_diff = r_estimate - r_optimal
 
+            r_estimate = env.simulate(estimated_policy)
+            r_optimal = env.simulate(optimal_policy)
+            r_diff = r_optimal - r_estimate
             policy_regret[step] = r_diff if r_diff > 0 else 0
             cosine_distance[step] = (
                 spatial.distance.cosine(theta_true, theta_hat)
@@ -124,8 +120,12 @@ def simultate(
 
             mlflow.log_metric("policy_regret", policy_regret[step], step=step)
             mlflow.log_metric("cosine_distance", cosine_distance[step], step=step)
-
             steps.set_description(f"Policy Regret {policy_regret[step]}")
+
+            query_best, label, utility, queried_states = agent.optimize_query(
+                algorithm=algorithm, n_jobs=8
+            )
+            agent.update_belief(query_best, label)
 
             if step % query_logging_rate == 0:
 

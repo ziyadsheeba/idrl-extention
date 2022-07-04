@@ -515,7 +515,7 @@ class LinearLogisticRewardModel(LogisticRewardModel):
             return kappa
 
     @classmethod
-    def from_trajectories_to_states(cls, trajectories: np.ndarray) -> np.ndarray:
+    def from_trajectories_to_pseudo_states(cls, trajectories: np.ndarray) -> np.ndarray:
         """Transforms trajectories to effective states.
 
         Args:
