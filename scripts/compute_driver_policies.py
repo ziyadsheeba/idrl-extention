@@ -1,3 +1,4 @@
+import os
 import pickle
 from multiprocessing import Pool
 
@@ -50,4 +51,5 @@ def main():
 
 
 if __name__ == "__main__":
+    os.makedirs(DRIVER_PRECOMPUTED_POLICIES_PATH, exist_ok=True)
     main()

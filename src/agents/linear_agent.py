@@ -5,6 +5,7 @@ from typing import Callable, List, Tuple
 
 import numpy as np
 import pandas as pd
+import tqdm
 
 from src.aquisition_functions.aquisition_functions import (
     acquisition_function_bounded_ball_map,
@@ -21,7 +22,6 @@ from src.reward_models.logistic_reward_models import (
     LogisticRewardModel,
 )
 from src.utils import get_pairs_from_list, multivariate_normal_sample
-import tqdm
 
 
 class LinearAgent:
@@ -29,9 +29,10 @@ class LinearAgent:
         self,
         query_expert: Callable,
         state_to_features: Callable,
-        estimate_state_visitation: Callable,
+        state_to_render_state: Callable,
         get_optimal_policy: Callable,
-        get_query_from_policies: Callable,
+        env_reset: Callable,
+        env_step: Callable,
         precomputed_policy_path: Path,
         reward_model: LogisticRewardModel,
         num_candidate_policies: int,
@@ -52,9 +53,10 @@ class LinearAgent:
         self.reward_model = reward_model
         self.query_expert = query_expert
         self.state_to_features = state_to_features
-        self.estimate_state_visitation = estimate_state_visitation
+        self.state_to_render_state = state_to_render_state
         self.get_optimal_policy = get_optimal_policy
-        self.get_query_from_policies = get_query_from_policies
+        self.reset = env_reset
+        self.step = env_step
         self.idrl = idrl
         self.candidate_policy_update_rate = candidate_policy_update_rate
         self.num_candidate_policies = num_candidate_policies
@@ -81,19 +83,36 @@ class LinearAgent:
         elif method == "mcmc":
             return self.reward_model.sample_mcmc(n_samples=n_samples)
 
+    def estimate_state_visitation(self, policy: np.ndarray, n_rollouts: int = 1):
+        svf = {}
+        for _ in range(n_rollouts):
+            done = False
+            s = self.reset()
+            while not done:
+                a = policy[int(s[-1])]
+                s, _, done, _ = self.step(a)
+                feature = self.state_to_features()
+                feature_arr = np.array(feature).reshape(1, len(feature))
+                feature_str = feature_arr.tobytes()
+                if feature_str in svf:
+                    svf[feature_str] += 1 / n_rollouts
+                else:
+                    svf[feature_str] = 1 / n_rollouts
+        return svf
+
     def estimate_pairwise_svf_mean(self, policies: list) -> dict:
         svf = []
         for policy in policies:
             svf.append(self.estimate_state_visitation(policy, n_rollouts=1))
         svf = pd.DataFrame(svf).T
         svf = svf.fillna(0)
-        states = svf.index.tolist()
+        features = svf.index.tolist()
         svf = [svf[column].to_numpy() for column in svf.columns]
         svf = get_pairs_from_list(svf)
         svf_diff = [np.abs(a - b) for a, b in svf]  # TO CHECK
         svf_diff_mean = np.mean(svf_diff, axis=0)
-        states = np.vstack(list(map(np.frombuffer, states)))
-        return np.expand_dims(svf_diff_mean, axis=1), states
+        features = np.vstack(list(map(np.frombuffer, features)))
+        return np.expand_dims(svf_diff_mean, axis=1), features
 
     def get_candidate_policies(
         self, use_thompson_sampling: bool = True, n_jobs: int = 1
@@ -116,12 +135,52 @@ class LinearAgent:
     def get_state_visitation_vector(self, n_jobs: int = 1):
         print("Recomputing Candidate Policies ...")
         policies = self.get_candidate_policies(n_jobs=n_jobs)
-        svf_diff_mean, state_support = self.estimate_pairwise_svf_mean(policies)
-        features = [self.state_to_features(x.squeeze().tolist()) for x in state_support]
-        features = np.vstack(features)
+        svf_diff_mean, features = self.estimate_pairwise_svf_mean(policies)
         # Normalize by the sum to get svf on a simplex, i.e convex combination
-        v = features.T @ svf_diff_mean / svf_diff_mean.sum()
+        v = features.T @ svf_diff_mean # / svf_diff_mean.sum()
         return v
+
+    def get_features_from_policies(
+        self, policies: list, n_rollouts: int = 1, return_trajectories: bool = True
+    ):
+        trajectories = []
+        for policy in policies:
+            for i in range(n_rollouts):
+                done = False
+                s = self.reset()
+                r = 0
+                features = []
+                while not done:
+                    a = policy[int(s[-1])]
+                    s, reward, done, info = self.step(a)
+                    r += reward
+                    features.append(self.state_to_features())
+                trajectories.append(np.vstack(features))
+        if return_trajectories:
+            return np.stack(trajectories, axis=2)
+        else:
+            return np.unique(np.vstack(trajectories), axis=0)
+
+    def get_render_state_from_policies(
+        self, policies: list, n_rollouts: int = 1, return_trajectories: bool = True
+    ):
+        trajectories = []
+        for policy in policies:
+            for i in range(n_rollouts):
+                done = False
+                s = self.reset()
+                r = 0
+                render_states = []
+                while not done:
+                    a = policy[int(s[-1])]
+                    s, reward, done, info = self.step(a)
+                    r += reward
+                    render_states.append(self.state_to_render_state())
+                trajectories.append(np.vstack(render_states))
+        if return_trajectories:
+            return np.stack(trajectories, axis=2)
+        else:
+            return np.unique(np.vstack(trajectories), axis=0)
 
     def get_candidate_queries(self):
         if self.use_trajectories:
@@ -133,7 +192,12 @@ class LinearAgent:
                 len(self.precomputed_policies), size=self.num_query, replace=False
             )
             _policies = [self.precomputed_policies[i] for i in idx]
-            queries = self.get_query_from_policies(_policies, return_trajectories=True)
+            features = self.get_features_from_policies(
+                _policies, return_trajectories=True
+            )
+            render_states = self.get_render_state_from_policies(
+                _policies, return_trajectories=True
+            )
         else:
             idx = np.random.choice(
                 len(self.precomputed_policies),
@@ -141,15 +205,20 @@ class LinearAgent:
                 replace=False,
             )
             _policies = [self.precomputed_policies[i] for i in idx]
-            queries = self.get_query_from_policies(_policies, return_trajectories=False)
+            features = self.get_features_from_policies(
+                _policies, return_trajectories=False
+            )
+            render_states = get_render_state_from_policies(
+                _policies, return_trajectories=False
+            )
             idx = np.random.choice(
-                len(queries),
+                len(features),
                 size=self.num_query,
                 replace=False,
             )
-            queries = queries[idx, :]
-
-        return queries
+            features = features[idx, :]
+            render_states = render_states[idx, :]
+        return features, render_states
 
     def optimize_query(
         self,
@@ -174,18 +243,19 @@ class LinearAgent:
             Tuple: The best query as a difference, i.e (feature1-feature2), the label thereof,
             the utility mapping, and the optimal queries in the original space.
         """
-        rollout_queries = self.get_candidate_queries()
+        rollout_features, rollout_render_states = self.get_candidate_queries()
         if self.idrl and self.counter % self.candidate_policy_update_rate == 0:
             self.v = self.get_state_visitation_vector(n_jobs=n_jobs)
 
         if self.use_trajectories:
-            features = np.apply_along_axis(self.state_to_features, 1, rollout_queries)
-            features = LinearLogisticRewardModel.from_trajectories_to_states(features)
-        else:
-            features = [
-                self.state_to_features(x.squeeze().tolist()) for x in rollout_queries
-            ]
-        feature_pairs = get_pairs_from_list(features)
+            rollout_features = (
+                LinearLogisticRewardModel.from_trajectories_to_pseudo_states(
+                    rollout_features
+                )
+            )
+
+        rollout_features = [x for x in rollout_features]
+        feature_pairs = get_pairs_from_list(rollout_features)
         candidate_queries = [np.expand_dims(a - b, axis=0) for a, b in feature_pairs]
 
         if algorithm == "bounded_hessian":
@@ -231,14 +301,14 @@ class LinearAgent:
             raise NotImplementedError()
         y = self.query_expert(query_best.squeeze().tolist())
 
-        idxs = get_pairs_from_list(range(len(features)))
+        idxs = get_pairs_from_list(range(len(rollout_features)))
         queried_idx = idxs[argmax]
         if self.use_trajectories:
-            query_best_1 = rollout_queries[:, :, queried_idx[0]].squeeze()
-            query_best_2 = rollout_queries[:, :, queried_idx[1]].squeeze()
+            query_best_1 = rollout_render_states[:, :, queried_idx[0]].squeeze()
+            query_best_2 = rollout_render_states[:, :, queried_idx[1]].squeeze()
         else:
-            query_best_1 = rollout_queries[queried_idx[0]].squeeze()
-            query_best_2 = rollout_queries[queried_idx[1]].squeeze()
+            query_best_1 = rollout_render_states[queried_idx[0]].squeeze()
+            query_best_2 = rollout_render_states[queried_idx[1]].squeeze()
 
         candidate_queries = [x.tobytes() for x in candidate_queries]
         self.counter += 1

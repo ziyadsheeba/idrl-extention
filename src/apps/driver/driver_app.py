@@ -43,6 +43,63 @@ CSS_PATH = APP_DIR_PATH / "style.css"
 tmp_path = None
 
 
+def generate_query():
+    query_best, true_label, utility, queried_states = st.session_state[
+        "agent"
+    ].optimize_query(algorithm=algorithm, n_jobs=4)
+    st.session_state["queries"] = (queried_states[0], queried_states[1])
+    st.session_state["query_best"] = query_best
+    st.session_state["true_label"] = true_label
+
+    st.session_state["env"].reset()
+    if trajectory_query:
+        trajectory_frames_1 = st.session_state["env"].get_trajectory_frames(
+            queried_states[0]
+        )
+        trajectory_frames_2 = st.session_state["env"].get_trajectory_frames(
+            queried_states[1]
+        )
+        save_video(trajectory_frames_1, str(tmp_path / "trajectory_1.mp4"))
+        save_video(trajectory_frames_2, str(tmp_path / "trajectory_2.mp4"))
+        video_bytes_1 = open(str(tmp_path / "trajectory_1.mp4"), "rb").read()
+        video_bytes_2 = open(str(tmp_path / "trajectory_2.mp4"), "rb").read()
+        return video_bytes_1, video_bytes_2
+
+    else:
+        fig_queries = st.session_state["env"].plot_query_states_pair(
+            queried_states[0], queried_states[1], label
+        )
+    return fig_queries
+
+
+def get_current_optimal_policy_video():
+    theta_hat = st.session_state["agent"].get_parameters_estimate().squeeze()
+    policy = st.session_state["env"].get_optimal_policy(theta=theta_hat)
+    st.session_state["optimal_policy"] = policy
+    frames = st.session_state["env"].get_policy_frames(policy)
+    save_video(frames, str(tmp_path / "optimal_policy.mp4"))
+    video_bytes = open(str(tmp_path / "optimal_policy.mp4"), "rb").read()
+    return video_bytes
+
+
+def update_agent(label):
+    st.session_state["agent"].update_belief(st.session_state["query_best"], label)
+    st.session_state["query_count"] += 1
+    st.session_state["labeling_disagreement"] += 1 - int(
+        label == st.session_state["true_label"]
+    )
+
+
+def get_true_optimal_policy_video():
+    if st.session_state["true_optimal_policy_video"] is None:
+        policy = st.session_state["env"].get_optimal_policy()
+        frames = st.session_state["env"].get_policy_frames(policy)
+        save_video(frames, str(tmp_path / "true_optimal_policy.mp4"))
+        video_bytes = open(str(tmp_path / "true_optimal_policy.mp4"), "rb").read()
+        st.session_state["true_optimal_policy_video"] = video_bytes
+    return st.session_state["true_optimal_policy_video"]
+
+
 def run_app(
     algorithm: str,
     dimensionality: int,
@@ -80,10 +137,10 @@ def run_app(
     if "agent" not in st.session_state:
         st.session_state["agent"] = Agent(
             query_expert=st.session_state["env"].get_comparison_from_feature_diff,
-            state_to_features=st.session_state["env"].get_query_features,
-            estimate_state_visitation=st.session_state["env"].estimate_state_visitation,
+            state_to_features=st.session_state["env"].get_reward_features,
             get_optimal_policy=st.session_state["env"].get_optimal_policy,
-            get_query_from_policies=st.session_state["env"].get_query_from_policies,
+            env_step=st.session_state["env"].step,
+            env_reset=st.session_state["env"].reset,
             precomputed_policy_path=DRIVER_PRECOMPUTED_POLICIES_PATH / "policies.pkl",
             reward_model=st.session_state["reward_model"],
             num_candidate_policies=num_candidate_policies,
@@ -115,59 +172,6 @@ def run_app(
         st.session_state["labeling_disagreement"] = 0
     if "true_optimal_policy_video" not in st.session_state:
         st.session_state["true_optimal_policy_video"] = None
-
-    def generate_query():
-        query_best, true_label, utility, queried_states = st.session_state[
-            "agent"
-        ].optimize_query(algorithm=algorithm, n_jobs=4)
-        st.session_state["queries"] = (queried_states[0], queried_states[1])
-        st.session_state["query_best"] = query_best
-        st.session_state["true_label"] = true_label
-
-        st.session_state["env"].reset()
-        if trajectory_query:
-            trajectory_frames_1 = st.session_state["env"].get_trajectory_frames(
-                queried_states[0]
-            )
-            trajectory_frames_2 = st.session_state["env"].get_trajectory_frames(
-                queried_states[1]
-            )
-            save_video(trajectory_frames_1, str(tmp_path / "trajectory_1.mp4"))
-            save_video(trajectory_frames_2, str(tmp_path / "trajectory_2.mp4"))
-            video_bytes_1 = open(str(tmp_path / "trajectory_1.mp4"), "rb").read()
-            video_bytes_2 = open(str(tmp_path / "trajectory_2.mp4"), "rb").read()
-            return video_bytes_1, video_bytes_2
-
-        else:
-            fig_queries = st.session_state["env"].plot_query_states_pair(
-                queried_states[0], queried_states[1], label
-            )
-        return fig_queries
-
-    def get_current_optimal_policy_video():
-        theta_hat = st.session_state["agent"].get_parameters_estimate().squeeze()
-        policy = st.session_state["env"].get_optimal_policy(theta=theta_hat)
-        st.session_state["optimal_policy"] = policy
-        frames = st.session_state["env"].get_policy_frames(policy)
-        save_video(frames, str(tmp_path / "optimal_policy.mp4"))
-        video_bytes = open(str(tmp_path / "optimal_policy.mp4"), "rb").read()
-        return video_bytes
-
-    def update_agent(label):
-        st.session_state["agent"].update_belief(st.session_state["query_best"], label)
-        st.session_state["query_count"] += 1
-        st.session_state["labeling_disagreement"] += 1 - int(
-            label == st.session_state["true_label"]
-        )
-
-    def get_true_optimal_policy_video():
-        if st.session_state["true_optimal_policy_video"] is None:
-            policy = st.session_state["env"].get_optimal_policy()
-            frames = st.session_state["env"].get_policy_frames(policy)
-            save_video(frames, str(tmp_path / "true_optimal_policy.mp4"))
-            video_bytes = open(str(tmp_path / "true_optimal_policy.mp4"), "rb").read()
-            st.session_state["true_optimal_policy_video"] = video_bytes
-        return st.session_state["true_optimal_policy_video"]
 
     with st.form(key="trajectory labeling"):
 
