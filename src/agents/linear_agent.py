@@ -100,10 +100,11 @@ class LinearAgent:
                     svf[feature_str] = 1 / n_rollouts
         return svf
 
-    def estimate_pairwise_svf_mean(self, policies: list) -> dict:
-        svf = []
-        for policy in policies:
-            svf.append(self.estimate_state_visitation(policy, n_rollouts=1))
+    def estimate_pairwise_svf_mean(self, policies: list, n_rollouts: int = 1) -> dict:
+        svf = [
+            self.estimate_state_visitation(policy, n_rollouts=n_rollouts)
+            for policy in policies
+        ]
         svf = pd.DataFrame(svf).T
         svf = svf.fillna(0)
         features = svf.index.tolist()
@@ -136,8 +137,7 @@ class LinearAgent:
         print("Recomputing Candidate Policies ...")
         policies = self.get_candidate_policies(n_jobs=n_jobs)
         svf_diff_mean, features = self.estimate_pairwise_svf_mean(policies)
-        # Normalize by the sum to get svf on a simplex, i.e convex combination
-        v = features.T @ svf_diff_mean # / svf_diff_mean.sum()
+        v = features.T @ svf_diff_mean
         return v
 
     def get_features_from_policies(

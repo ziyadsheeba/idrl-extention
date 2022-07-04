@@ -102,12 +102,7 @@ def simultate(
                 if np.linalg.norm(theta_hat) > 0
                 else theta_hat
             )
-            env_estimate = get_driver_target_velocity(reward_weights=theta_hat)
-            estimated_policy = env_estimate.get_optimal_policy()
-            # r_estimate = env_estimate.simulate(estimated_policy)
-            # r_optimal = env_estimate.simulate(optimal_policy)
-            # r_diff = r_estimate - r_optimal
-
+            estimated_policy = env.get_optimal_policy(theta=theta_hat)
             r_estimate = env.simulate(estimated_policy)
             r_optimal = env.simulate(optimal_policy)
             r_diff = r_optimal - r_estimate
