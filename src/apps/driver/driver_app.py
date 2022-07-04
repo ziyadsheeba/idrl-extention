@@ -43,7 +43,7 @@ CSS_PATH = APP_DIR_PATH / "style.css"
 tmp_path = None
 
 
-def generate_query(algorithm: str):
+def generate_query(algorithm: str, trajectory_query: bool):
     query_best, true_label, utility, queried_states = st.session_state[
         "agent"
     ].optimize_query(algorithm=algorithm, n_jobs=4)
@@ -198,7 +198,7 @@ def run_app(
 
                 if st.session_state["query_count"] % candidate_policy_update_rate == 0:
                     st.info("Updating Candidate Policies. Coffee time...")
-                video_1, video_2 = generate_query(algorithm)
+                video_1, video_2 = generate_query(algorithm, trajectory_query)
 
                 c_trajectory_1.video(video_1)
                 c_trajectory_2.video(video_2)
