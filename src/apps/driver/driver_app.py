@@ -43,7 +43,7 @@ CSS_PATH = APP_DIR_PATH / "style.css"
 tmp_path = None
 
 
-def generate_query():
+def generate_query(algorithm: str):
     query_best, true_label, utility, queried_states = st.session_state[
         "agent"
     ].optimize_query(algorithm=algorithm, n_jobs=4)
@@ -138,6 +138,7 @@ def run_app(
         st.session_state["agent"] = Agent(
             query_expert=st.session_state["env"].get_comparison_from_feature_diff,
             state_to_features=st.session_state["env"].get_reward_features,
+            state_to_render_state=st.session_state["env"].get_render_state,
             get_optimal_policy=st.session_state["env"].get_optimal_policy,
             env_step=st.session_state["env"].step,
             env_reset=st.session_state["env"].reset,
@@ -195,7 +196,9 @@ def run_app(
                 current_opt_policy = get_current_optimal_policy_video()
                 true_opt_policy = get_true_optimal_policy_video()
 
-                video_1, video_2 = generate_query()
+                if st.session_state["query_count"] % candidate_policy_update_rate == 0:
+                    st.info("Updating Candidate Policies. Coffee time...")
+                video_1, video_2 = generate_query(algorithm)
 
                 c_trajectory_1.video(video_1)
                 c_trajectory_2.video(video_2)
@@ -225,8 +228,8 @@ if __name__ == "__main__":
     tmp_path = Path(temp_dir.name)
 
     st.title("Information Directed Preference Learning")
-    try:
-        run_app(
+    # try:
+    run_app(
             algorithm=ALGORITHM,
             dimensionality=DIMENSIONALITY,
             theta_norm=THETA_NORM,
@@ -241,5 +244,5 @@ if __name__ == "__main__":
             idrl=IDRL,
             trajectory_query=TRAJECTORY_QUERY,
         )
-    except:
-        temp_dir.cleanup()
+    # except:
+    #     temp_dir.cleanup()
