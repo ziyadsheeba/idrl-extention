@@ -1,17 +1,20 @@
 import copy
 from abc import ABC, abstractmethod
-from typing import List, Tuple, Union
+from typing import Callable, List, Tuple, Union
 
 import cvxpy as cp
 import numpy as np
 from scipy.integrate import quadrature
+from scipy.linalg import block_diag
 from scipy.special import expit
 
 from src.constraints.constraints import Constraint
 from src.reward_models.approximate_posteriors import (
     ApproximatePosterior,
+    GPLaplaceApproximation,
     LaplaceApproximation,
 )
+from src.reward_models.kernels import Kernel, LinearKernel, RBFKernel
 from src.reward_models.samplers import MALA
 from src.utils import bernoulli_entropy, matrix_inverse, multivariate_normal_sample
 
@@ -30,20 +33,20 @@ class LogisticRewardModel(ABC):
         pass
 
     @abstractmethod
-    def get_likelihood(self):
+    def likelihood(self):
         pass
 
     @abstractmethod
     def sample_current_approximate_distribution(self):
         pass
 
-    @abstractmethod
-    def get_approximate_predictive_distribution(self):
-        pass
+    # @abstractmethod
+    # def get_approximate_predictive_distribution(self):
+    #     pass
 
-    @abstractmethod
-    def neglog_posterior_bounded_hessian(self):
-        pass
+    # @abstractmethod
+    # def neglog_posterior_bounded_hessian(self):
+    #     pass
 
 
 class LinearLogisticRewardModel(LogisticRewardModel):
@@ -99,7 +102,6 @@ class LinearLogisticRewardModel(LogisticRewardModel):
 
         if approximation == "laplace":
             self.approximate_posterior = LaplaceApproximation(
-                dim=dim,
                 prior_covariance=self.prior_covariance,
                 prior_mean=self.prior_mean,
                 neglog_posterior=self.neglog_posterior,
@@ -180,7 +182,7 @@ class LinearLogisticRewardModel(LogisticRewardModel):
     ) -> float:
         return np.exp(-self.neglog_posterior(theta=theta, y=y, X=X))
 
-    def get_likelihood(self, x: np.ndarray, y: int, theta: np.ndarray) -> float:
+    def likelihood(self, x: np.ndarray, y: int, theta: np.ndarray) -> float:
         """Returns the likelihood of observing (x,y) under the given theta.
 
         Args:
@@ -389,7 +391,7 @@ class LinearLogisticRewardModel(LogisticRewardModel):
             p_1 = 0
             for i in range(samples.shape[0]):
                 sample = samples[i, :]
-                p_1 += self.get_likelihood(x=x, y=1, theta=sample)
+                p_1 += self.likelihood(x=x, y=1, theta=sample)
             p_1 = p_1 / n_samples
             p_0 = 1 - p_1
         else:
@@ -551,3 +553,142 @@ class LinearLogisticRewardModel(LogisticRewardModel):
         X = np.concatenate(X)
         y = np.array(_y)
         return self.approximate_posterior.simulate_update(X, y)
+
+
+class GPLogisticRewardModel(LogisticRewardModel):
+    def __init__(
+        self,
+        dim: int,
+        x_min: Union[List[float], float],
+        x_max: Union[List[float], float],
+        kernel: Kernel,
+        reward_min: float = -1,
+        reward_max: float = 1,
+        prior_mean: Callable = None,
+        approximation: str = "laplace",
+    ):
+        """_summary_
+
+        Args:
+            dim (int): Dimensionality of the covariates.
+            kernel (Kernel): A the similarity kernel.
+            x_min (Union[List[float], float]): The minimum state (in terms of the norm), full list or coordinate wise bound.
+            x_max (Union[List[float], float]): The maximum state (in terms of the norm), full list or coordinate wise bound.
+            reward_min (float): The minimum reward possible.
+            reward_max (float): The maximum reward possible.
+            prior_mean (np.ndarray, optional): The prior mean for the parameter vector. Defaults to None.
+            approximation (str, optional): The approximation algorithm. Defaults to "laplace".
+
+        Raises:
+            NotImplementedError: If approximate posterior is not implemented.
+        """
+
+        self.dim = dim
+        if isinstance(x_min, float):
+            x_min = dim * [x_min]
+        if isinstance(x_max, float):
+            x_max = dim * [x_max]
+        self.x_min = np.expand_dims(np.array(x_min), axis=0)
+        self.x_max = np.expand_dims(np.array(x_max), axis=0)
+        self.kernel = kernel
+        if prior_mean is None:
+            self.prior_mean = lambda x: np.expand_dims(
+                np.array(x.shape[0] * [0]), axis=-1
+            )
+
+        if approximation == "laplace":
+            self.approximate_posterior = GPLaplaceApproximation(
+                kernel=self.kernel,
+                prior_mean=self.prior_mean,
+                neglog_posterior=self.neglog_posterior,
+                hessian=self.neglog_posterior_hessian,
+            )
+        else:
+            raise NotImplementedError(
+                f"Approximation method {approximation} not implemented"
+            )
+        self.X = []
+        self.y = []
+
+    def likelihood(self, f_x: np.ndarray, y: np.ndarray):
+        """Likelihood function. Assumes an explicit ordering of f_x, that each 2 consecutive rows correspond to the same query.
+
+        Args:
+            f_x (np.ndarray): _description_
+            y (np.ndarray): _description_
+
+        Returns:
+            _type_: _description_
+        """
+        f_x_reduced = np.array([f_x[i] - f_x[i + 1] for i in range(0, len(f_x), 2)])
+        y_hat = expit(f_x_reduced)
+        return np.sum(y_hat**y + (1 - y_hat) ** (1 - y))
+
+    def neglog_posterior(
+        self, f_x: np.ndarray, y: np.ndarray = None, X: np.ndarray = None
+    ):
+        if y is None and X is None:
+            if len(self.X) > 0:
+                X = np.concatenate(self.X, axis=0)
+                y = np.array(self.y)
+            else:
+                raise ValueError(
+                    "The memory is empty, must pass explicit covariates and labels."
+                )
+        elif (y is None and X is not None) or (X is None and y is not None):
+            raise ValueError("Specificy X and y, or neither of them.")
+        if f_x.ndim == 1:
+            f_x = np.expand_dims(f_x, axis=-1)
+        prior_mean = self.prior_mean(X)
+        K = self.kernel.eval(X, X)
+        neglog_prior = (
+            0.5 * (f_x - prior_mean).T @ matrix_inverse(K) @ (f_x - prior_mean)
+        ).item()
+        neglog_likelihood = -np.log(self.likelihood(f_x, y))
+        return neglog_prior + neglog_likelihood
+
+    def neglog_posterior_hessian(
+        self, f_x: np.ndarray, X: np.ndarray = None
+    ):
+        if X is None:
+            if len(self.X) > 0:
+                X = np.concatenate(self.X, axis=0)
+            else:
+                raise ValueError(
+                    "The memory is empty, must pass explicit covariates and labels."
+                )
+        K = self.kernel.eval(X, X)
+        f_x_reduced = np.array([f_x[i] - f_x[i + 1] for i in range(0, len(f_x), 2)])
+        W = []
+        for f_delta in f_x_reduced:
+            variance = (expit(f_delta) * (1 - expit(f_delta))).item()
+            W.append(np.array([[variance, -variance], [-variance, variance]]))
+        W = block_diag(*W)
+        return W + matrix_inverse(K)
+
+    def update(self, x_1: np.ndarray, x_2, y: np.ndarray) -> None:
+
+        """Updates the reward model after a new observation (x,y)
+
+        Args:
+            x (np.ndarray): The observed covariate.
+            y (np.ndarray): The observed response.
+        """
+        self.update_approximate_posterior(x_1, x_2, y)
+
+    def update_approximate_posterior(self, x_1, x_2, y) -> None:
+        """updates the approximate posterior
+
+        Args:
+            X (np.ndarray): The input covariates.
+            y (np.ndarray): The labels.
+        """
+        self.X.append(x_1)
+        self.X.append(x_2)
+        self.y.append(y)
+        X = np.concatenate(self.X, axis=0)
+        y = np.array(self.y)
+        self.approximate_posterior.update(X, y)
+
+    def sample_current_approximate_distribution(self, x, n_samples: int = 1):
+        return self.approximate_posterior.sample(x, np.concatenate(self.X), n_samples)

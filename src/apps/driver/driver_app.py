@@ -230,19 +230,19 @@ if __name__ == "__main__":
     st.title("Information Directed Preference Learning")
     # try:
     run_app(
-            algorithm=ALGORITHM,
-            dimensionality=DIMENSIONALITY,
-            theta_norm=THETA_NORM,
-            x_min=X_MIN,
-            x_max=X_MAX,
-            prior_variance_scale=PRIOR_VARIANCE_SCALE,
-            simulation_steps=SIMULATION_STEPS,
-            candidate_policy_update_rate=CANDIDATE_POLICY_UPDATE_RATE,
-            num_candidate_policies=NUM_CANDIDATE_POLICIES,
-            query_logging_rate=QUERY_LOGGING_RATE,
-            num_query=NUM_QUERY,
-            idrl=IDRL,
-            trajectory_query=TRAJECTORY_QUERY,
-        )
+        algorithm=ALGORITHM,
+        dimensionality=DIMENSIONALITY,
+        theta_norm=THETA_NORM,
+        x_min=X_MIN,
+        x_max=X_MAX,
+        prior_variance_scale=PRIOR_VARIANCE_SCALE,
+        simulation_steps=SIMULATION_STEPS,
+        candidate_policy_update_rate=CANDIDATE_POLICY_UPDATE_RATE,
+        num_candidate_policies=NUM_CANDIDATE_POLICIES,
+        query_logging_rate=QUERY_LOGGING_RATE,
+        num_query=NUM_QUERY,
+        idrl=IDRL,
+        trajectory_query=TRAJECTORY_QUERY,
+    )
     # except:
     #     temp_dir.cleanup()
