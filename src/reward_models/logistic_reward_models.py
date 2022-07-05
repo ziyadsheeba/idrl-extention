@@ -602,7 +602,6 @@ class GPLogisticRewardModel(LogisticRewardModel):
                 prior_mean=self.prior_mean,
                 neglog_posterior=self.neglog_posterior,
                 neglog_posterior_hessian=self.neglog_posterior_hessian,
-                neglog_likelihood_hessian=self.neglog_likelihood_hessian,
                 neglog_posterior_gradient=self.neglog_posterior_gradient,
             )
         else:

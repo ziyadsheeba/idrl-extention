@@ -85,7 +85,6 @@ class GPLaplaceApproximation(ApproximatePosterior):
         prior_mean: Callable,
         neglog_posterior: Callable[[np.ndarray, np.ndarray, np.ndarray], np.ndarray],
         neglog_posterior_hessian: Callable[[np.ndarray, np.ndarray], np.ndarray],
-        neglog_likelihood_hessian: Callable[[np.ndarray], np.ndarray],
         neglog_posterior_gradient: Callable[
             [np.ndarray, np.ndarray, np.ndarray], np.ndarray
         ],
@@ -94,7 +93,6 @@ class GPLaplaceApproximation(ApproximatePosterior):
         self.prior_mean = prior_mean
         self.neglog_posterior = neglog_posterior
         self.neglog_posterior_hessian = neglog_posterior_hessian
-        self.neglog_likelihood_hessian = neglog_likelihood_hessian
         self.neglog_posterior_gradient = neglog_posterior_gradient
         self.f_hat = None
 
