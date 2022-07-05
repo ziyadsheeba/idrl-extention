@@ -105,7 +105,7 @@ class LinearLogisticRewardModel(LogisticRewardModel):
                 prior_covariance=self.prior_covariance,
                 prior_mean=self.prior_mean,
                 neglog_posterior=self.neglog_posterior,
-                hessian=self.neglog_posterior_hessian,
+                neglog_posterior_hessian=self.neglog_posterior_hessian,
             )
         else:
             raise NotImplementedError(
@@ -601,7 +601,9 @@ class GPLogisticRewardModel(LogisticRewardModel):
                 kernel=self.kernel,
                 prior_mean=self.prior_mean,
                 neglog_posterior=self.neglog_posterior,
-                hessian=self.neglog_posterior_hessian,
+                neglog_posterior_hessian=self.neglog_posterior_hessian,
+                neglog_likelihood_hessian=self.neglog_likelihood_hessian,
+                neglog_posterior_gradient=self.neglog_posterior_gradient,
             )
         else:
             raise NotImplementedError(
@@ -625,8 +627,28 @@ class GPLogisticRewardModel(LogisticRewardModel):
         return np.sum(y_hat**y + (1 - y_hat) ** (1 - y))
 
     def neglog_posterior(
-        self, f_x: np.ndarray, y: np.ndarray = None, X: np.ndarray = None
+        self,
+        f_x: np.ndarray,
+        y: np.ndarray = None,
+        X: np.ndarray = None,
+        K_inv: np.ndarray = None,
     ):
+        """_summary_
+
+        Args:
+            f_x (np.ndarray): _description_
+            y (np.ndarray, optional): _description_. Defaults to None.
+            X (np.ndarray, optional): _description_. Defaults to None.
+            K_inv (np.ndarray, optional): Inverse Gram Matrix. Using this argument significantly
+                increases update speed. Defaults to None.
+
+        Raises:
+            ValueError: _description_
+            ValueError: _description_
+
+        Returns:
+            _type_: _description_
+        """
         if y is None and X is None:
             if len(self.X) > 0:
                 X = np.concatenate(self.X, axis=0)
@@ -640,16 +662,29 @@ class GPLogisticRewardModel(LogisticRewardModel):
         if f_x.ndim == 1:
             f_x = np.expand_dims(f_x, axis=-1)
         prior_mean = self.prior_mean(X)
-        K = self.kernel.eval(X, X)
-        neglog_prior = (
-            0.5 * (f_x - prior_mean).T @ matrix_inverse(K) @ (f_x - prior_mean)
-        ).item()
+
+        if K_inv is None:
+            K = self.kernel.eval(X, X)
+            K_inv = matrix_inverse(K)
+        neglog_prior = (0.5 * (f_x - prior_mean).T @ K_inv @ (f_x - prior_mean)).item()
         neglog_likelihood = -np.log(self.likelihood(f_x, y))
         return neglog_prior + neglog_likelihood
 
-    def neglog_posterior_hessian(
-        self, f_x: np.ndarray, X: np.ndarray = None
-    ):
+    def neglog_posterior_gradient(
+        self,
+        f_x: np.ndarray,
+        y: np.ndarray,
+        X: np.ndarray,
+        *kwargs,
+    ) -> np.ndarray:
+        f_x_reduced = np.array([f_x[i] - f_x[i + 1] for i in range(0, len(f_x), 2)])
+        y_hat = expit(f_x_reduced)
+        grad = y - y_hat
+        grad = np.repeat(grad, repeats=2, axis=0)
+        grad[::2] *= -1
+        return grad
+
+    def neglog_posterior_hessian(self, f_x: np.ndarray, X: np.ndarray = None):
         if X is None:
             if len(self.X) > 0:
                 X = np.concatenate(self.X, axis=0)
@@ -658,13 +693,17 @@ class GPLogisticRewardModel(LogisticRewardModel):
                     "The memory is empty, must pass explicit covariates and labels."
                 )
         K = self.kernel.eval(X, X)
+        W = self.neglog_likelihood_hessian(f_x)
+        return W + matrix_inverse(K)
+
+    def neglog_likelihood_hessian(self, f_x: np.ndarray):
         f_x_reduced = np.array([f_x[i] - f_x[i + 1] for i in range(0, len(f_x), 2)])
         W = []
         for f_delta in f_x_reduced:
             variance = (expit(f_delta) * (1 - expit(f_delta))).item()
             W.append(np.array([[variance, -variance], [-variance, variance]]))
         W = block_diag(*W)
-        return W + matrix_inverse(K)
+        return W
 
     def update(self, x_1: np.ndarray, x_2, y: np.ndarray) -> None:
 
@@ -691,4 +730,21 @@ class GPLogisticRewardModel(LogisticRewardModel):
         self.approximate_posterior.update(X, y)
 
     def sample_current_approximate_distribution(self, x, n_samples: int = 1):
-        return self.approximate_posterior.sample(x, np.concatenate(self.X), n_samples)
+        samples = self.approximate_posterior.sample(
+            x, np.concatenate(self.X), n_samples
+        )
+        if x.shape[0] == 1:
+            samples = samples.item()
+        return samples
+
+    def get_mean(self, x):
+        mean = self.approximate_posterior.get_mean(x, np.concatenate(self.X))
+        if x.shape[0] == 1:
+            mean = mean.item()
+        return mean
+
+    def get_covariance(self, x):
+        cov = self.approximate_posterior.get_covariance(x, np.concatenate(self.X))
+        if x.shape[0] == 1:
+            cov = cov.item()
+        return cov
