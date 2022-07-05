@@ -38,7 +38,7 @@ class LinearAgent:
         num_candidate_policies: int,
         idrl: bool,
         candidate_policy_update_rate: int,
-        state_space_dim: int,
+        feature_space_dim: int,
         use_trajectories: bool,
         num_query: int,
     ):
@@ -47,9 +47,9 @@ class LinearAgent:
             query_expert (Callable): A function to provide feedback given a query.
             state_to_features (Callable): Transforms states to query features used for the model.
             reward_model (LogisticRewardModel): The reward model.
-            state_space_dim (int): The state dimensionality.
+            feature_space_dim (int): The state dimensionality.
         """
-        self.state_space_dim = state_space_dim
+        self.feature_space_dim = feature_space_dim
         self.reward_model = reward_model
         self.query_expert = query_expert
         self.state_to_features = state_to_features

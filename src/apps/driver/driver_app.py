@@ -147,7 +147,7 @@ def run_app(
             num_candidate_policies=num_candidate_policies,
             idrl=idrl,
             candidate_policy_update_rate=candidate_policy_update_rate,
-            state_space_dim=dimensionality,
+            feature_space_dim=dimensionality,
             use_trajectories=trajectory_query,
             num_query=num_query,
         )
