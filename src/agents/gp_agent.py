@@ -18,7 +18,7 @@ from src.aquisition_functions.aquisition_functions import (
     acquisition_function_random,
 )
 from src.reward_models.logistic_reward_models import (
-    LinearLogisticRewardModel,
+    GPLogisticRewardModel,
     LogisticRewardModel,
 )
 from src.utils import get_pairs_from_list, multivariate_normal_sample
@@ -34,7 +34,7 @@ class LinearAgent:
         env_reset: Callable,
         env_step: Callable,
         precomputed_policy_path: Path,
-        reward_model: LinearLogisticRewardModel,
+        reward_model: GPLogisticRewardModel,
         num_candidate_policies: int,
         idrl: bool,
         candidate_policy_update_rate: int,
@@ -69,51 +69,14 @@ class LinearAgent:
         self.v = None
         self.counter = 0
 
-    def update_belief(self, x: np.ndarray, y: np.ndarray) -> None:
-        self.reward_model.update(x, y)
+    def update_belief(self, x_1: np.ndarray, x_2: np.ndarray, y: np.ndarray) -> None:
+        self.reward_model.update(x_1, x_2, y)
 
-    def get_parameters_estimate(self):
-        return self.reward_model.get_parameters_estimate().squeeze()
+    def get_reward_estimate(self, x: np.ndarray):
+        return self.reward_model.get_mean(x).squeeze()
 
-    def sample_parameters(self, n_samples: int = 5, method="approximate_posterior"):
-        if method == "approximate_posterior":
-            return self.reward_model.sample_current_approximate_distribution(
-                n_samples=n_samples
-            )
-        elif method == "mcmc":
-            return self.reward_model.sample_mcmc(n_samples=n_samples)
-
-    def estimate_state_visitation(self, policy: np.ndarray, n_rollouts: int = 1):
-        svf = {}
-        for _ in range(n_rollouts):
-            done = False
-            s = self.reset()
-            while not done:
-                a = policy[int(s[-1])]
-                s, _, done, _ = self.step(a)
-                feature = self.state_to_features()
-                feature_arr = np.array(feature).reshape(1, len(feature))
-                feature_str = feature_arr.tobytes()
-                if feature_str in svf:
-                    svf[feature_str] += 1 / n_rollouts
-                else:
-                    svf[feature_str] = 1 / n_rollouts
-        return svf
-
-    def estimate_pairwise_svf_mean(self, policies: list, n_rollouts: int = 1) -> dict:
-        svf = [
-            self.estimate_state_visitation(policy, n_rollouts=n_rollouts)
-            for policy in policies
-        ]
-        svf = pd.DataFrame(svf).T
-        svf = svf.fillna(0)
-        features = svf.index.tolist()
-        svf = [svf[column].to_numpy() for column in svf.columns]
-        svf = get_pairs_from_list(svf)
-        svf_diff = [np.abs(a - b) for a, b in svf]  # TO CHECK
-        svf_diff_mean = np.mean(svf_diff, axis=0)
-        features = np.vstack(list(map(np.frombuffer, features)))
-        return np.expand_dims(svf_diff_mean, axis=1), features
+    def sample_reward(self, x, n_samples):
+        return self.reward_model.sample_current_approximate_distribution(x, n_samples)
 
     def get_candidate_policies(
         self, use_thompson_sampling: bool = True, n_jobs: int = 1
@@ -132,13 +95,6 @@ class LinearAgent:
         else:
             raise NotImplementedError()
         return policies
-
-    def get_state_visitation_vector(self, n_jobs: int = 1):
-        print("Recomputing Candidate Policies ...")
-        policies = self.get_candidate_policies(n_jobs=n_jobs)
-        svf_diff_mean, features = self.estimate_pairwise_svf_mean(policies)
-        v = features.T @ svf_diff_mean
-        return v
 
     def get_features_from_policies(
         self, policies: list, n_rollouts: int = 1, return_trajectories: bool = True
@@ -257,45 +213,9 @@ class LinearAgent:
         rollout_features = [x for x in rollout_features]
         feature_pairs = get_pairs_from_list(rollout_features)
         candidate_queries = [np.expand_dims(a - b, axis=0) for a, b in feature_pairs]
-
-        if algorithm == "bounded_hessian":
-            query_best, utility, argmax = acquisition_function_bounded_hessian(
-                self.reward_model, candidate_queries, n_jobs=n_jobs
-            )
-        elif algorithm == "map_hessian":
-            query_best, utility, argmax = acquisition_function_map_hessian(
-                self.reward_model, candidate_queries, n_jobs=n_jobs
-            )
-        elif algorithm == "random":
+        if algorithm == "random":
             query_best, utility, argmax = acquisition_function_random(
                 self.reward_model, candidate_queries, n_jobs=n_jobs
-            )
-        elif algorithm == "bounded_coordinate_hessian":
-            (
-                query_best,
-                utility,
-                argmax,
-            ) = acquisition_function_bounded_coordinate_hessian(
-                self.reward_model, candidate_queries, v=self.v, n_jobs=n_jobs
-            )
-        elif algorithm == "optimal_hessian":
-            query_best, utility, argmax = acquisition_function_optimal_hessian(
-                self.reward_model,
-                candidate_queries,
-                theta=self.expert.true_parameter,
-                n_jobs=n_jobs,
-            )
-        elif algorithm == "map_confidence":
-            query_best, utility, argmax = acquisition_function_map_confidence(
-                self.reward_model, candidate_queries, n_jobs=n_jobs
-            )
-        elif algorithm == "current_map_hessian":
-            query_best, utility, argmax = acquisition_function_current_map_hessian(
-                self.reward_model, candidate_queries, v=self.v, n_jobs=n_jobs
-            )
-        elif algorithm == "bounded_ball_map":
-            query_best, utility, argmax = acquisition_function_bounded_ball_map(
-                self.reward_model, candidate_queries, v=self.v, n_jobs=n_jobs
             )
         else:
             raise NotImplementedError()

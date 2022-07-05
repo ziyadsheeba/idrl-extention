@@ -34,7 +34,6 @@ class TestGPLogisticRewardModel(unittest.TestCase):
             dim=DIM, kernel=KERNEL, x_min=X_MIN, x_max=X_MAX
         )
         for i in range(100):
-            print(i)
             x_1 = np.random.uniform(size=(1, DIM))
             x_2 = np.random.uniform(size=(1, DIM))
             y = 1

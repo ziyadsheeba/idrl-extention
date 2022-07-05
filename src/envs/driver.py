@@ -311,7 +311,6 @@ class Driver:
 
         self.reset()
         r_features = np.zeros_like(self.get_reward_features())
-        c_features = np.zeros_like(self.get_constraint_features())
         for i in range(self.episode_length):
             if i % n_repeat == 0:
                 action_i = a_dim * (i // n_repeat)
@@ -319,25 +318,7 @@ class Driver:
             s, _, done, _ = self.step(action)
             assert (i < self.episode_length - 1) or done
             r_features += self.get_reward_features()
-            c_features += self.get_constraint_features()
-        return r_features, c_features
-
-    def get_features_from_policy(self, policy):
-        a_dim = self.action_d
-        n_policy_steps = len(policy)
-        n_repeat = self.episode_length // n_policy_steps
-
-        self.reset()
-        r_features = np.zeros_like(self.get_reward_features())
-        c_features = np.zeros_like(self.get_constraint_features())
-        for i in range(self.episode_length):
-            if i % n_repeat == 0:
-                action = policy[i]
-            s, _, done, _ = self.step(action)
-            assert (i < self.episode_length - 1) or done
-            r_features += self.get_reward_features()
-            c_features += self.get_constraint_features()
-        return r_features, c_features
+        return r_features
 
     def get_render_state(self):
         render_state = copy.deepcopy(self.state)
@@ -346,6 +327,12 @@ class Driver:
             render_state.append(pos_x)
             render_state.append(pos_y)
         return render_state
+
+    def get_full_state(self):
+        x = copy.deepcopy(self.state)
+        for car in self.cars:
+            x.extend(car.state)
+        return x
 
     def get_optimal_policy(self, theta=None, restarts=30, n_action_repeat=10):
         a_dim = self.action_d
@@ -357,13 +344,12 @@ class Driver:
             theta = self.reward_w
 
         def func(policy):
-            reward_features, _ = self._get_features_from_flat_policy(policy)
+            reward_features = self._get_features_from_flat_policy(policy)
             return -np.array(reward_features).dot(theta)
 
         opt_val = np.inf
         bounds = list(zip(a_low, a_high)) * n_policy_steps
         for i in range(restarts):
-            # print(i, end=" ", flush=True)
             x0 = np.random.uniform(
                 low=a_low * n_policy_steps,
                 high=a_high * n_policy_steps,
@@ -478,6 +464,16 @@ class Driver:
             self.viewer = None
 
     def plot_query_states_pair(self, query_state_1, query_state_2, label):
+        """Assumes that the query state is the full state of the agent plus the
+           position of each other agent.
+        Args:
+            query_state_1 (_type_): _description_
+            query_state_2 (_type_): _description_
+            label (_type_): _description_
+
+        Returns:
+            _type_: _description_
+        """
         fig, axs = plt.subplots(2, figsize=(7, 14))
 
         if label == 1:
