@@ -144,7 +144,6 @@ class Driver:
         self,
         cars,
         reward_weights,
-        constraint_weights=None,
         threshold=0,
         starting_lane="middle",
         starting_speed=0.41,
@@ -174,16 +173,6 @@ class Driver:
         self.reward_w = np.array(reward_weights)
         self.n_features_reward = n_features_reward
 
-        n_features_constraint = len(self.get_constraint_features())
-        if constraint_weights is not None:
-            assert constraint_weights.shape == (n_features_constraint,)
-            self.constraint_w = np.array(constraint_weights)
-            self.threshold = threshold
-        else:
-            self.constraint_w = None
-            self.threshold = 0
-        self.n_features_constraint = n_features_constraint
-
         self.action_d = 2
         self.action_min = np.array([-1, -1])
         self.action_max = np.array([1, 1])
@@ -198,6 +187,12 @@ class Driver:
     def _get_car_states(self):
         return [np.array(car.state) for car in self.cars]
 
+    def get_full_state(self):
+        state = copy.deepcopy(self.state)
+        for car in self.cars:
+            state.extend(car.state)
+        return np.array(state)
+
     def _update_state(self, state, u1, u2):
         x, y, theta, v = state
         dx = v * np.cos(theta)
@@ -207,10 +202,12 @@ class Driver:
         new_v = max(min(v + dv * self.dt, self.vmax), -self.vmax)
         return [x + dx * self.dt, y + dy * self.dt, theta + dtheta * self.dt, new_v]
 
-    def _get_reward_for_state(self, state=None):
-        if state is None:
-            state = self.state
-        return np.dot(self.reward_w, self.get_reward_features(state))
+    def _get_reward_for_state(self, full_state=None):
+        if full_state is not None:
+            assert len(full_state) == (
+                4 + 4 * len(self.cars)
+            ), "Full state has insufficient size"
+        return np.dot(self.reward_w, self.get_reward_features(full_state))
 
     def get_comparison_from_feature_diff(self, feature_diff):
         p = expit(np.dot(feature_diff, self.reward_w)).item()
@@ -245,17 +242,21 @@ class Driver:
         self._update_history()
         return np.array(self.state + [self.time])
 
-    def get_reward_features(self, state=None):
-        return self._get_features(state=state)
+    def get_reward_features(self, full_state=None):
+        if full_state is not None:
+            assert len(full_state) == (
+                4 + 4 * len(self.cars)
+            ), "Full state has insufficient size"
+        return self._get_features(full_state=full_state)
 
-    def get_constraint_features(self, state=None):
-        return self._get_features(state=state)
-
-    def _get_features(self, state=None):
-        if state is None:
-            state = self.state
-        x, y, theta, v = state
-
+    def _get_features(self, full_state=None):
+        if full_state is None:
+            x, y, theta, v = self.state
+        else:
+            assert len(full_state) == (
+                4 + 4 * len(self.cars)
+            ), "Full state has insufficient size"
+            x, y, theta, v = full_state[:4]
         off_street = int(np.abs(x) > self.roads[0].width / 2)
 
         b = 10000
@@ -271,12 +272,22 @@ class Driver:
         distance_to_other_car = 0
         b = 30
         a = 0.01
-        for car in self.cars:
-            car_x, car_y, car_theta, car_v = car.state
-            distance_to_other_car += np.exp(
-                -b * (10 * (x - car_x) ** 2 + (y - car_y) ** 2) + b * a
-            )
 
+        if full_state is None:
+            for car in self.cars:
+                car_x, car_y, car_theta, car_v = car.state
+                distance_to_other_car += np.exp(
+                    -b * (10 * (x - car_x) ** 2 + (y - car_y) ** 2) + b * a
+                )
+        else:
+            car_states = [
+                full_state[4 * (i + 1) : 4 * (i + 2)] for i in range(len(self.cars))
+            ]
+            for car_state in car_states:
+                car_x, car_y, car_theta, car_v = car_states
+                distance_to_other_car += np.exp(
+                    -b * (10 * (x - car_x) ** 2 + (y - car_y) ** 2) + b * a
+                )
         keeping_speed = -np.square(v - 0.4)
         target_location = -np.square(x - 0.17)
 
@@ -749,36 +760,14 @@ def get_reward_weights(goal, penalty_lambda):
     return goal_weights - penalty_lambda * penalty_weights
 
 
-def get_constraint_weigths_threshold(constraint):
-    if constraint is None:
-        return None, None
-    elif constraint == "default":
-        constraint_weights = np.array(
-            [
-                0,  # keep speed
-                0,  # target location
-                0.3,  # off street
-                0.05,  # not in lane
-                0.02,  # big angle
-                0.5,  # drive backward
-                0.3,  # too fast
-                0.8,  # distance to other car
-            ],
-            dtype=float,
-        )
-        threshold = 1
-        return constraint_weights, threshold
-
-
 def get_driver(
-    cars_trajectory, goal, penalty_lambda=0, reward_weights=None, constraint=None
+    cars_trajectory, goal, penalty_lambda=0, reward_weights=None,
 ):
     cars = get_cars(cars_trajectory)
     if reward_weights is None:
         reward_weights = get_reward_weights(goal, penalty_lambda)
     else:
         reward_weights = reward_weights
-    constraint_weights, threshold = get_constraint_weigths_threshold(constraint)
 
     if cars_trajectory == "blocked":
         starting_speed = 0.1
@@ -788,8 +777,6 @@ def get_driver(
     return Driver(
         cars=cars,
         reward_weights=reward_weights,
-        constraint_weights=constraint_weights,
-        threshold=threshold,
         starting_speed=starting_speed,
     )
 
@@ -822,28 +809,11 @@ def get_driver_target_location():
 def get_driver_target_location_only_reward():
     return get_driver("changing_lane", "target_location", penalty_lambda=0)
 
-
-def get_driver_constraint_target_velocity(blocking_cars=False):
-    if blocking_cars:
-        cars_trajectory = "blocked"
-    else:
-        cars_trajectory = "changing_lane"
-    return get_driver(
-        cars_trajectory, "target_velocity", penalty_lambda=0, constraint="default"
-    )
-
-
-def get_driver_constraint_target_location():
-    return get_driver(
-        "changing_lane", "target_location", penalty_lambda=0, constraint="default"
-    )
-
-
 if __name__ == "__main__":
     import time
 
     env = get_driver_target_velocity()
-    policy, r_features, c_features = env.get_optimal_policy()
+    policy = env.get_optimal_policy()
     s = env.reset()
     done = False
     r = 0
