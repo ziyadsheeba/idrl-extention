@@ -559,8 +559,6 @@ class GPLogisticRewardModel(LogisticRewardModel):
     def __init__(
         self,
         dim: int,
-        x_min: Union[List[float], float],
-        x_max: Union[List[float], float],
         kernel: Kernel,
         reward_min: float = -1,
         reward_max: float = 1,
@@ -572,8 +570,6 @@ class GPLogisticRewardModel(LogisticRewardModel):
         Args:
             dim (int): Dimensionality of the covariates.
             kernel (Kernel): A the similarity kernel.
-            x_min (Union[List[float], float]): The minimum state (in terms of the norm), full list or coordinate wise bound.
-            x_max (Union[List[float], float]): The maximum state (in terms of the norm), full list or coordinate wise bound.
             reward_min (float): The minimum reward possible.
             reward_max (float): The maximum reward possible.
             prior_mean (np.ndarray, optional): The prior mean for the parameter vector. Defaults to None.
@@ -584,12 +580,6 @@ class GPLogisticRewardModel(LogisticRewardModel):
         """
 
         self.dim = dim
-        if isinstance(x_min, float):
-            x_min = dim * [x_min]
-        if isinstance(x_max, float):
-            x_max = dim * [x_max]
-        self.x_min = np.expand_dims(np.array(x_min), axis=0)
-        self.x_max = np.expand_dims(np.array(x_max), axis=0)
         self.kernel = kernel
         if prior_mean is None:
             self.prior_mean = lambda x: np.expand_dims(
@@ -610,6 +600,8 @@ class GPLogisticRewardModel(LogisticRewardModel):
             )
         self.X = []
         self.y = []
+        self.K_inv = None
+        self.cov_map = None
 
     def likelihood(self, f_x: np.ndarray, y: np.ndarray):
         """Likelihood function. Assumes an explicit ordering of f_x, that each 2 consecutive rows correspond to the same query.
@@ -623,13 +615,30 @@ class GPLogisticRewardModel(LogisticRewardModel):
         """
         f_x_reduced = np.array([f_x[i] - f_x[i + 1] for i in range(0, len(f_x), 2)])
         y_hat = expit(f_x_reduced)
-        return np.sum(y_hat**y + (1 - y_hat) ** (1 - y))
+        return -np.prod(y_hat**y + (1 - y_hat) ** (1 - y))
+
+    def neglog_likelihood(self, f_x: np.ndarray, y: np.ndarray):
+        """Likelihood function. Assumes an explicit ordering of f_x, that each 2 consecutive rows correspond to the same query.
+
+        Args:
+            f_x (np.ndarray): _description_
+            y (np.ndarray): _description_
+
+        Returns:
+            _type_: _description_
+        """
+        f_x_reduced = np.array(
+            [f_x[i] - f_x[i + 1] for i in range(0, len(f_x), 2)]
+        ).squeeze()
+        eps = 1e-10
+        y_hat = expit(f_x_reduced)
+        return -np.sum(y * np.log(y_hat + eps) + (1 - y) * np.log(1 - y_hat + eps))
 
     def neglog_posterior(
         self,
         f_x: np.ndarray,
-        y: np.ndarray = None,
         X: np.ndarray = None,
+        y: np.ndarray = None,
         K_inv: np.ndarray = None,
     ):
         """_summary_
@@ -666,24 +675,37 @@ class GPLogisticRewardModel(LogisticRewardModel):
             K = self.kernel.eval(X, X)
             K_inv = matrix_inverse(K)
         neglog_prior = (0.5 * (f_x - prior_mean).T @ K_inv @ (f_x - prior_mean)).item()
-        neglog_likelihood = -np.log(self.likelihood(f_x, y))
+        neglog_likelihood = self.neglog_likelihood(f_x, y)
         return neglog_prior + neglog_likelihood
 
     def neglog_posterior_gradient(
         self,
         f_x: np.ndarray,
-        y: np.ndarray,
         X: np.ndarray,
-        *kwargs,
+        y: np.ndarray,
+        K_inv: np.ndarray,
     ) -> np.ndarray:
-        f_x_reduced = np.array([f_x[i] - f_x[i + 1] for i in range(0, len(f_x), 2)])
+        if f_x.ndim == 1:
+            f_x = np.expand_dims(f_x, axis=-1)
+        prior_mean = self.prior_mean(X)
+        grad_prior = K_inv @ (f_x - prior_mean)
+        f_x_reduced = np.array(
+            [f_x[i] - f_x[i + 1] for i in range(0, len(f_x), 2)]
+        ).squeeze()
         y_hat = expit(f_x_reduced)
-        grad = y - y_hat
-        grad = np.repeat(grad, repeats=2, axis=0)
-        grad[::2] *= -1
+        grad_likelihood = y - y_hat
+        grad_likelihood = np.repeat(grad_likelihood, repeats=2, axis=0).squeeze()
+        grad_likelihood[::2] *= -1
+        grad = grad_likelihood.squeeze() + grad_prior.squeeze()
         return grad
 
-    def neglog_posterior_hessian(self, f_x: np.ndarray, X: np.ndarray = None):
+    def neglog_posterior_hessian(
+        self,
+        f_x: np.ndarray,
+        X: np.ndarray = None,
+        y: np.ndarray = None,
+        K_inv: np.ndarray = None,
+    ):
         if X is None:
             if len(self.X) > 0:
                 X = np.concatenate(self.X, axis=0)
@@ -691,9 +713,11 @@ class GPLogisticRewardModel(LogisticRewardModel):
                 raise ValueError(
                     "The memory is empty, must pass explicit covariates and labels."
                 )
-        K = self.kernel.eval(X, X)
+        if K_inv is None:
+            K = self.kernel.eval(X, X)
+            K_inv = matrix_inverse(K)
         W = self.neglog_likelihood_hessian(f_x)
-        return W + matrix_inverse(K)
+        return W + K_inv
 
     def neglog_likelihood_hessian(self, f_x: np.ndarray):
         f_x_reduced = np.array([f_x[i] - f_x[i + 1] for i in range(0, len(f_x), 2)])
@@ -712,38 +736,73 @@ class GPLogisticRewardModel(LogisticRewardModel):
             x (np.ndarray): The observed covariate.
             y (np.ndarray): The observed response.
         """
-        self.update_approximate_posterior(x_1, x_2, y)
+        if x_1.ndim == 1:
+            x_1 = np.expand_dims(x_1, axis=0)
+        if x_2.ndim == 1:
+            x_2 = np.expand_dims(x_2, axis=0)
+        self.X.append(x_1)
+        self.X.append(x_2)
+        self.y.append(y)
+        f_x = self.update_approximate_posterior()
 
-    def update_approximate_posterior(self, x_1, x_2, y) -> None:
+        self.update_gram_matrix_inverse()
+        self.update_map_covariance(f_x)
+
+    def update_approximate_posterior(self) -> np.ndarray:
         """updates the approximate posterior
 
         Args:
             X (np.ndarray): The input covariates.
             y (np.ndarray): The labels.
         """
-        self.X.append(x_1)
-        self.X.append(x_2)
-        self.y.append(y)
         X = np.concatenate(self.X, axis=0)
         y = np.array(self.y)
-        self.approximate_posterior.update(X, y)
+        return self.approximate_posterior.update(X, y)
+
+    def update_gram_matrix_inverse(self):
+        X = np.concatenate(self.X)
+        self.K_inv = matrix_inverse(self.kernel.eval(X, X))
+
+    def update_map_covariance(self, f_x: np.ndarray):
+        self.cov_map = matrix_inverse(self.neglog_posterior_hessian(f_x))
 
     def sample_current_approximate_distribution(self, x, n_samples: int = 1):
-        samples = self.approximate_posterior.sample(
-            x, np.concatenate(self.X), n_samples
-        )
+        if x.ndim == 1:
+            x = np.expand_dims(x, axis=0)
+        if len(self.X) == 0:
+            X = None
+        else:
+            X = np.concatenate(self.X)
+        samples = self.approximate_posterior.sample(x, X, n_samples, K_inv)
         if x.shape[0] == 1:
             samples = samples.item()
         return samples
 
     def get_mean(self, x):
-        mean = self.approximate_posterior.get_mean(x, np.concatenate(self.X))
+        if len(self.X) == 0:
+            X = None
+        else:
+            X = np.concatenate(self.X)
+        if x.ndim == 1:
+            x = np.expand_dims(x, axis=0)
+
+        mean = self.approximate_posterior.get_mean(x, X, K_inv=self.K_inv)
         if x.shape[0] == 1:
             mean = mean.item()
         return mean
 
     def get_covariance(self, x):
-        cov = self.approximate_posterior.get_covariance(x, np.concatenate(self.X))
+        if len(self.X) == 0:
+            X = None
+        else:
+            X = np.concatenate(self.X)
+
+        if x.ndim == 1:
+            x = np.expand_dims(x, axis=0)
+
+        cov = self.approximate_posterior.get_covariance(
+            x, X, K_inv=self.K_inv, cov_map=self.cov_map
+        )
         if x.shape[0] == 1:
             cov = cov.item()
         return cov
