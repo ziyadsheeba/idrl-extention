@@ -156,16 +156,9 @@ class GPLaplaceApproximation(ApproximatePosterior):
             jac=self.neglog_posterior_gradient,
             hess=self.neglog_posterior_hessian,
         ).x
-        # solution = scipy.optimize.minimize(
-        #     self.neglog_posterior,
-        #     f_x_0,
-        #     args=(X, y, K_inv),
-        #     method="L-BFGS-B",
-        # ).x
         solution = np.expand_dims(solution, axis=-1)
         if store:
             self.f_hat = solution
-        print(self.f_hat)
         return solution
 
     def sample(
