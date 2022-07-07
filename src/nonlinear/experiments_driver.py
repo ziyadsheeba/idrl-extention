@@ -13,13 +13,14 @@ import mlflow
 import numpy as np
 import pandas as pd
 import typer
+from memory_profiler import profile
 from scipy import spatial
 from tqdm import tqdm
 
 from src.agents.gp_agent import GPAgent as Agent
 from src.constants import DRIVER_PRECOMPUTED_POLICIES_PATH
 from src.envs.driver import get_driver_target_velocity
-from src.reward_models.kernels import RBFKernel
+from src.reward_models.kernels import LinearKernel, RBFKernel
 from src.reward_models.logistic_reward_models import GPLogisticRewardModel
 
 plt.style.use("ggplot")
@@ -29,7 +30,7 @@ from src.nonlinear.driver_config import (
     CANDIDATE_POLICY_UPDATE_RATE,
     DIMENSIONALITY,
     IDRL,
-    N_PROCESSES,
+    N_JOBS,
     NUM_CANDIDATE_POLICIES,
     NUM_QUERY,
     QUERY_LOGGING_RATE,
@@ -49,6 +50,7 @@ def simultate(
     num_query: int,
     idrl: bool,
     trajectory_query: bool,
+    n_jobs: int,
 ):
     # true reward parameter
     env = get_driver_target_velocity()
@@ -57,7 +59,8 @@ def simultate(
 
     # Initialize the reward model
     reward_model = GPLogisticRewardModel(
-        dim=dimensionality, kernel=RBFKernel(dim=dimensionality)
+        dim=dimensionality,
+        kernel=RBFKernel(dim=dimensionality),
     )
 
     # Initialize the agents
@@ -76,6 +79,7 @@ def simultate(
         representation_space_dim=dimensionality,
         use_trajectories=trajectory_query,
         num_query=num_query,
+        n_jobs=n_jobs,
     )
 
     policy_regret = {}
@@ -92,7 +96,7 @@ def simultate(
             steps.set_description(f"Policy Regret {policy_regret[step]}")
 
             query_best, label, queried_states = agent.optimize_query(
-                algorithm=algorithm, n_jobs=8
+                algorithm=algorithm, n_jobs=1
             )
             agent.update_belief(*query_best, label)
 
@@ -143,11 +147,10 @@ def execute(seed):
             num_query=NUM_QUERY,
             idrl=IDRL,
             trajectory_query=TRAJECTORY_QUERY,
+            n_jobs=N_JOBS,
         )
 
 
 if __name__ == "__main__":
-    # pool = Pool(processes=N_PROCESSES)
-    # for seed in tqdm(pool.imap_unordered(execute, SEEDS), total=len(SEEDS)):
-    #     pass
-    execute(10)
+    for seed in SEEDS:
+        execute(10)

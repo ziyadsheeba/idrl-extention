@@ -5,7 +5,8 @@ from typing import Callable, List, Tuple, Union
 import cvxpy as cp
 import numpy as np
 from scipy.integrate import quadrature
-from scipy.linalg import block_diag
+from scipy.linalg import block_diag, cholesky
+from scipy.sparse import csc_matrix
 from scipy.special import expit
 
 from src.constraints.constraints import Constraint
@@ -659,7 +660,7 @@ class GPLogisticRewardModel(LogisticRewardModel):
         """
         if y is None and X is None:
             if len(self.X) > 0:
-                X = np.concatenate(self.X, axis=0)
+                X = np.vstack(self.X)
                 y = np.array(self.y)
             else:
                 raise ValueError(
@@ -708,7 +709,7 @@ class GPLogisticRewardModel(LogisticRewardModel):
     ):
         if X is None:
             if len(self.X) > 0:
-                X = np.concatenate(self.X, axis=0)
+                X = np.vstack(self.X)
             else:
                 raise ValueError(
                     "The memory is empty, must pass explicit covariates and labels."
@@ -743,10 +744,8 @@ class GPLogisticRewardModel(LogisticRewardModel):
         self.X.append(x_1)
         self.X.append(x_2)
         self.y.append(y)
-        f_x = self.update_approximate_posterior()
-
         self.update_gram_matrix_inverse()
-        self.update_map_covariance(f_x)
+        self.update_map_covariance(self.update_approximate_posterior())
 
     def update_approximate_posterior(self) -> np.ndarray:
         """updates the approximate posterior
@@ -755,12 +754,12 @@ class GPLogisticRewardModel(LogisticRewardModel):
             X (np.ndarray): The input covariates.
             y (np.ndarray): The labels.
         """
-        X = np.concatenate(self.X, axis=0)
-        y = np.array(self.y)
-        return self.approximate_posterior.update(X, y)
+        return self.approximate_posterior.update(
+            np.vstack(self.X), np.array(self.y), self.K_inv
+        )
 
     def update_gram_matrix_inverse(self):
-        X = np.concatenate(self.X)
+        X = np.vstack(self.X)
         self.K_inv = matrix_inverse(self.kernel.eval(X, X))
 
     def update_map_covariance(self, f_x: np.ndarray):
@@ -772,8 +771,9 @@ class GPLogisticRewardModel(LogisticRewardModel):
         if len(self.X) == 0:
             X = None
         else:
-            X = np.concatenate(self.X)
-        samples = self.approximate_posterior.sample(x, X, n_samples, K_inv)
+            X = np.vstack(self.X)
+
+        samples = self.approximate_posterior.sample(x, X, n_samples, self.K_inv)
         if x.shape[0] == 1:
             samples = samples.item()
         return samples
@@ -782,11 +782,10 @@ class GPLogisticRewardModel(LogisticRewardModel):
         if len(self.X) == 0:
             X = None
         else:
-            X = np.concatenate(self.X)
+            X = np.vstack(self.X)
         if x.ndim == 1:
             x = np.expand_dims(x, axis=0)
-
-        mean = self.approximate_posterior.get_mean(x, X, K_inv=self.K_inv)
+        mean = self.approximate_posterior.get_mean(x, X, self.K_inv)
         if x.shape[0] == 1:
             mean = mean.item()
         return mean
@@ -795,14 +794,12 @@ class GPLogisticRewardModel(LogisticRewardModel):
         if len(self.X) == 0:
             X = None
         else:
-            X = np.concatenate(self.X)
+            X = np.vstack(self.X)
 
         if x.ndim == 1:
             x = np.expand_dims(x, axis=0)
 
-        cov = self.approximate_posterior.get_covariance(
-            x, X, K_inv=self.K_inv, cov_map=self.cov_map
-        )
+        cov = self.approximate_posterior.get_covariance(x, X, self.K_inv, self.cov_map)
         if x.shape[0] == 1:
             cov = cov.item()
         return cov

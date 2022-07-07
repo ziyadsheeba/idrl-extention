@@ -1,8 +1,10 @@
+import warnings
 from abc import ABC, abstractmethod
 from typing import Callable, Tuple
 
 import numpy as np
 import scipy.optimize
+from scipy.sparse import csc_matrix
 
 from src.utils import matrix_inverse, multivariate_normal_sample, timeit
 
@@ -31,10 +33,10 @@ class LaplaceApproximation(ApproximatePosterior):
         prior_covariance: np.ndarray,
         prior_mean: np.ndarray,
         neglog_posterior: Callable[[np.ndarray, np.ndarray, np.ndarray], np.ndarray],
-        hessian: Callable[[np.ndarray, np.ndarray], np.ndarray],
+        neglog_posterior_hessian: Callable[[np.ndarray, np.ndarray], np.ndarray],
     ):
         self.neglog_posterior = neglog_posterior
-        self.neglog_posterior_hessian = hessian
+        self.neglog_posterior_hessian = neglog_posterior_hessian
         self._mean = prior_mean
         self._hessian_inv = prior_covariance
 
@@ -101,8 +103,9 @@ class GPLaplaceApproximation(ApproximatePosterior):
             if K_inv is None:
                 K = self.kernel.eval(X, X)
                 K_inv = matrix_inverse(K)
-            mean = self.kernel.eval(x, X) @ K_inv @ self.f_hat
+            mean = self.kernel.eval(x, X) @ K_inv @ (self.f_hat - self.prior_mean(X))
         else:
+            warnings.warn("Returning Prior Mean")
             mean = self.prior_mean(x)
         return mean
 
@@ -129,25 +132,21 @@ class GPLaplaceApproximation(ApproximatePosterior):
                 + k_x_X @ K_inv @ cov_map @ K_inv @ k_x_X.T
             )
         else:
+            warnings.warn("Returning Prior Covariance")
             cov = self.kernel.eval(x, x)
         return cov
 
-    def update(self, X: np.ndarray, y: np.ndarray):
-        self.f_hat = self.simulate_update(X, y)
-        return self.f_hat
-
-    def sample(
-        self, x: np.ndarray, X: np.ndarray, n_samples: int = 1, K_inv: np.ndarray = None
-    ) -> np.ndarray:
-        mu = self.get_mean(x, X, K_inv)
-        cov = self.get_covariance(x, X, K_inv)
-        return multivariate_normal_sample(mu=mu, cov=cov, n_samples=n_samples).squeeze()
-
-    def simulate_update(
-        self, X: np.ndarray, y: np.ndarray
+    def update(
+        self,
+        X: np.ndarray,
+        y: np.ndarray,
+        K_inv: np.ndarray = None,
+        store: bool = True,
     ) -> Tuple[np.ndarray, np.ndarray]:
-        K = self.kernel.eval(X, X)
-        K_inv = matrix_inverse(K)
+
+        if K_inv is None:
+            K = self.kernel.eval(X, X)
+            K_inv = matrix_inverse(K)
         f_x_0 = np.zeros(X.shape[0])
         solution = scipy.optimize.minimize(
             self.neglog_posterior,
@@ -157,4 +156,25 @@ class GPLaplaceApproximation(ApproximatePosterior):
             jac=self.neglog_posterior_gradient,
             hess=self.neglog_posterior_hessian,
         ).x
-        return np.expand_dims(solution, axis=-1)
+        # solution = scipy.optimize.minimize(
+        #     self.neglog_posterior,
+        #     f_x_0,
+        #     args=(X, y, K_inv),
+        #     method="L-BFGS-B",
+        # ).x
+        solution = np.expand_dims(solution, axis=-1)
+        if store:
+            self.f_hat = solution
+        print(self.f_hat)
+        return solution
+
+    def sample(
+        self,
+        x: np.ndarray,
+        X: np.ndarray,
+        n_samples: int = 1,
+        K_inv: np.ndarray = None,
+    ) -> np.ndarray:
+        mu = self.get_mean(x, X, K_inv)
+        cov = self.get_covariance(x, X, K_inv)
+        return multivariate_normal_sample(mu=mu, cov=cov, n_samples=n_samples).squeeze()

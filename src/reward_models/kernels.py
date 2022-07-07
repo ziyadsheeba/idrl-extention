@@ -11,7 +11,7 @@ class Kernel(ABC):
 
 
 class LinearKernel(Kernel):
-    def __init__(self, input_dim: int, variances: List[float] = None):
+    def __init__(self, dim: int, obs_var: float = 1e-8):
         """An implementation of a linear kernel function
 
         Args:
@@ -19,12 +19,10 @@ class LinearKernel(Kernel):
             variances (List[float], optional): Coordinates scale for the
                 inner product. Defaults to None.
         """
-        self.input_dim = input_dim
-        if variances is None:
-            variances = np.ones(input_dim)
-        self.variances = variances
+        self.dim = dim
+        self.obs_var = obs_var
 
-    def eval(self, x: np.ndarray, y: np.ndarray) -> float:
+    def eval(self, X_1: np.ndarray, X_2: np.ndarray) -> np.ndarray:
         """Kernel function.
 
         Args:
@@ -37,46 +35,37 @@ class LinearKernel(Kernel):
         assert (
             X_1.shape[1] == self.dim and X_2.shape[1] == self.dim
         ), "Input must be 2-d array"
-        K = np.zeros(shape=(X_1.shape[0], X_2.shape[0]))
-        for i, x_1 in enumerate(X_1):
-            for j, x_2 in enumerate(X_2):
-                key = (x_1.tostring(), x_2.tostring())
-                if key in self.k_cache:
-                    K[i, j] = self.k_cache[key]
-                else:
-                    k = np.matmul(x_1.T, np.matmul(np.diag(self.variances), x_2))
-                    self.k_cache[key] = k
-                    K[i, j] = k
-        if K.shape[0] == K.shape[1] == 0:
-            K = K.item()
+        K = X_1 @ X_2.T
+        if K.shape[0] == K.shape[1]:
+            if K.shape[0] == 1:
+                K = K.item() + self.obs_var
+            else:
+                K += np.eye(K.shape[0]) * self.obs_var
         return K
 
 
 class RBFKernel(Kernel):
     """
-    Radial basis function (RBF) kernel that allows to specify a custom distance.
+    Radial basis function (RBF) kernel.
     Attributes:
     -------------
     variance: RBF variance (sigma)
     lengthscale: RBF lengthscale (l)
-    distance: Distance function that takes two points and returns a float
-    k_cache: used to cache the covariances that have already been calculated
+    obs_var: Observation variance
     """
 
     def __init__(
         self,
         dim: int,
         variance: float = 1,
-        lengthscale: float = 1,
-        distance: Callable[[np.ndarray, np.ndarray], float] = lambda x, y: np.sum(
-            np.sqrt(np.square(x - y).sum())
-        ),
+        lengthscale: float = 0.5,
+        obs_var: float = 1e-8,
+        use_cache: bool = False,
     ):
         self.dim = dim
         self.variance = variance
         self.lengthscale = lengthscale
-        self.distance = distance
-        self.k_cache: Dict[Tuple[str, str], float] = {}
+        self.obs_var = obs_var
 
     def eval(self, X_1: np.ndarray, X_2: np.ndarray) -> np.ndarray:
         """Kernel evaluation function.
@@ -92,16 +81,15 @@ class RBFKernel(Kernel):
             X_1.shape[1] == self.dim and X_2.shape[1] == self.dim
         ), "Input must be 2-d array"
         K = np.zeros(shape=(X_1.shape[0], X_2.shape[0]))
-        for i, x_1 in enumerate(X_1):
-            for j, x_2 in enumerate(X_2):
-                key = (x_1.tobytes(), x_2.tobytes())
-                if key in self.k_cache:
-                    K[i, j] = self.k_cache[key]
-                else:
-                    r = self.distance(x_1, x_2) / self.lengthscale
-                    k = self.variance**2 * np.exp(-0.5 * r**2).item()
-                    self.k_cache[key] = k
-                    K[i, j] = k
-        if K.shape[0] == K.shape[1] == 0:
-            K = K.item()
+        X_1_norm = np.sum(X_1**2, axis=-1)
+        X_2_norm = np.sum(X_2**2, axis=-1)
+        norm = X_1_norm[:, None] + X_2_norm[None, :] - 2 * np.dot(X_1, X_2.T)
+        K = self.variance**2 * np.exp(-0.5 * norm / self.lengthscale**2)
+        if K.shape[0] == K.shape[1]:
+            if K.shape[0] == 1:
+                K = K.item() + self.obs_var
+            else:
+                K += np.eye(K.shape[0]) * self.obs_var
+        return K
+
         return K

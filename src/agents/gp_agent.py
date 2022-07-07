@@ -43,6 +43,7 @@ class GPAgent:
         representation_space_dim: int,
         use_trajectories: bool,
         num_query: int,
+        n_jobs: int,
     ):
         """
         Args:
@@ -66,6 +67,7 @@ class GPAgent:
         self.num_candidate_policies = num_candidate_policies
         self.use_trajectories = use_trajectories
         self.num_query = num_query
+        self.n_jobs = n_jobs
 
         with open(str(precomputed_policy_path), "rb") as f:
             self.precomputed_policies = pickle.load(f)
@@ -83,7 +85,8 @@ class GPAgent:
         return self.reward_model.sample_current_approximate_distribution(x, n_samples)
 
     def get_candidate_policies(
-        self, use_thompson_sampling: bool = True, n_jobs: int = 1
+        self,
+        use_thompson_sampling: bool = True,
     ):
         if use_thompson_sampling:
 
@@ -93,7 +96,7 @@ class GPAgent:
             ]
 
             policies = []
-            pool = Pool(processes=n_jobs)
+            pool = Pool(processes=self.n_jobs)
             for policy in tqdm.tqdm(
                 pool.starmap(
                     self.get_optimal_policy_from_reward_function,
@@ -222,7 +225,7 @@ class GPAgent:
             rollout_render_representations,
         ) = self.get_candidate_queries()
         if self.idrl and self.counter % self.candidate_policy_update_rate == 0:
-            self.v = self.get_representation_visitation_vector(n_jobs=n_jobs)
+            self.v = self.get_representation_visitation_vector(n_jobs=self.n_jobs)
 
         if self.use_trajectories:
             raise NotImplementedError()
@@ -231,7 +234,7 @@ class GPAgent:
         representation_pairs = get_pairs_from_list(rollout_representations)
         if algorithm == "random":
             query_best, utility, argmax = acquisition_function_random(
-                self.reward_model, representation_pairs, n_jobs=n_jobs
+                self.reward_model, representation_pairs, n_jobs=self.n_jobs
             )
         else:
             raise NotImplementedError()
@@ -249,7 +252,6 @@ class GPAgent:
             render_state_2 = rollout_render_representations[queried_idx[1]].squeeze()
 
         y = self.query_expert(*query_best)
-
         self.counter += 1
         return (
             query_best,

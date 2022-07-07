@@ -30,6 +30,7 @@ loky = "*"
 streamlit = "*"
 opencv-python = "==4.3.0.36"
 idrl-extention = {editable = true, path = "."}
+memory-profiler = "*"
 
 [dev-packages]
 

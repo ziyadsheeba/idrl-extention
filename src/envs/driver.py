@@ -215,12 +215,26 @@ class Driver:
         feedback = np.random.choice([1, 0], p=[p, 1 - p])
         return feedback
 
+    def get_comparison_from_features(self, feature_1, feature_2):
+        feature_diff = feature_1 - feature_2
+        p = expit(np.dot(feature_diff, self.reward_w)).item()
+        feedback = np.random.choice([1, 0], p=[p, 1 - p])
+        return feedback
+
     def get_comparison_from_full_states(self, state_1, state_2):
         feature_1 = self.get_reward_features(state_1)
         feature_2 = self.get_reward_features(state_2)
         feature_diff = feature_1 - feature_2
         p = expit(np.dot(feature_diff, self.reward_w)).item()
         feedback = np.random.choice([1, 0], p=[p, 1 - p])
+        return feedback
+
+    def get_hard_comparison_from_full_states(self, state_1, state_2):
+        feature_1 = self.get_reward_features(state_1)
+        feature_2 = self.get_reward_features(state_2)
+        feature_diff = feature_1 - feature_2
+        p = expit(np.dot(feature_diff, self.reward_w)).item()
+        feedback = 1 if p >= 0.5 else 0
         return feedback
 
     def get_hard_comparison_from_feature_diff(self, feature_diff):
@@ -428,7 +442,7 @@ class Driver:
             rewards = 0
             for representation in representations:
                 rewards += reward_function(representation.tobytes())
-            return rewards
+            return -rewards
 
         opt_val = np.inf
         bounds = list(zip(a_low, a_high)) * n_policy_steps
