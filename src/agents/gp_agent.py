@@ -134,7 +134,9 @@ class GPAgent:
                     representations.append(self.get_representation())
                 trajectories.append(np.vstack(representations))
         if return_trajectories:
-            return np.stack(trajectories, axis=2)
+            return np.stack(
+                trajectories, axis=2
+            ).T  # TODO: Optimize, transposition is slow
         else:
             return np.unique(np.vstack(trajectories), axis=0)
 
@@ -182,20 +184,20 @@ class GPAgent:
                 replace=False,
             )
             _policies = [self.precomputed_policies[i] for i in idx]
-            features = self.get_representation_from_policies(
+            representations = self.get_representation_from_policies(
                 _policies, return_trajectories=False
             )
             render_representations = self.get_render_representation_from_policies(
                 _policies, return_trajectories=False
             )
             idx = np.random.choice(
-                len(features),
+                len(representations),
                 size=self.num_query,
                 replace=False,
             )
-            features = features[idx, :]
+            representations = representations[idx, :]
             render_representations = render_representations[idx, :]
-        return features, render_representations
+        return representations, render_representations
 
     def optimize_query(
         self,
@@ -227,9 +229,6 @@ class GPAgent:
         if self.idrl and self.counter % self.candidate_policy_update_rate == 0:
             self.v = self.get_representation_visitation_vector(n_jobs=self.n_jobs)
 
-        if self.use_trajectories:
-            raise NotImplementedError()
-
         rollout_representations = [x for x in rollout_representations]
         representation_pairs = get_pairs_from_list(rollout_representations)
         if algorithm == "random":
@@ -241,17 +240,16 @@ class GPAgent:
         idxs = get_pairs_from_list(range(len(rollout_representations)))
         queried_idx = idxs[argmax]
         if self.use_trajectories:
-            query_best_1 = rollout_render_representations[
+            render_state_1 = rollout_render_representations[
                 :, :, queried_idx[0]
             ].squeeze()
-            query_best_2 = rollout_render_representations[
+            render_state_2 = rollout_render_representations[
                 :, :, queried_idx[1]
             ].squeeze()
         else:
             render_state_1 = rollout_render_representations[queried_idx[0]].squeeze()
             render_state_2 = rollout_render_representations[queried_idx[1]].squeeze()
-
-        y = self.query_expert(*query_best)
+        y = self.query_expert(*query_best, self.use_trajectories)
         self.counter += 1
         return (
             query_best,

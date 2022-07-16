@@ -37,6 +37,7 @@ from src.nonlinear.driver_config import (
     SEEDS,
     SIMULATION_STEPS,
     TRAJECTORY_QUERY,
+    KERNEL_PARAMS,
 )
 
 
@@ -51,6 +52,7 @@ def simultate(
     idrl: bool,
     trajectory_query: bool,
     n_jobs: int,
+    kernel_params: dict,
 ):
     # true reward parameter
     env = get_driver_target_velocity()
@@ -60,7 +62,8 @@ def simultate(
     # Initialize the reward model
     reward_model = GPLogisticRewardModel(
         dim=dimensionality,
-        kernel=RBFKernel(dim=dimensionality),
+        kernel=RBFKernel(**kernel_params),
+        trajectory=trajectory_query,
     )
 
     # Initialize the agents
@@ -127,7 +130,7 @@ def simultate(
 def execute(seed):
     np.random.seed(seed)
 
-    mlflow.set_experiment(f"driver/{ALGORITHM}")
+    mlflow.set_experiment(f"driver/gp/{ALGORITHM}")
     with mlflow.start_run():
         mlflow.log_param("algorithm", ALGORITHM)
         mlflow.log_param("dimensionality", DIMENSIONALITY)
@@ -136,6 +139,7 @@ def execute(seed):
         mlflow.log_param("idrl", IDRL)
         mlflow.log_param("use_trajectories", TRAJECTORY_QUERY)
         mlflow.log_param("seed", seed)
+        mlflow.log_params(KERNEL_PARAMS)
 
         simultate(
             algorithm=ALGORITHM,
@@ -148,6 +152,7 @@ def execute(seed):
             idrl=IDRL,
             trajectory_query=TRAJECTORY_QUERY,
             n_jobs=N_JOBS,
+            kernel_params=KERNEL_PARAMS,
         )
 
 

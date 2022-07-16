@@ -46,7 +46,8 @@ class LinearKernel(Kernel):
 
 class RBFKernel(Kernel):
     """
-    Radial basis function (RBF) kernel.
+    Radial basis function (RBF) kernel. The kernel can handle states and trajectories. The trajectory inputs
+        should be of the shape (n_trajectories, dimension, len_trajectory)
     Attributes:
     -------------
     variance: RBF variance (sigma)
@@ -59,7 +60,7 @@ class RBFKernel(Kernel):
         dim: int,
         variance: float = 1,
         lengthscale: float = 0.5,
-        obs_var: float = 1e-8,
+        obs_var: float = 1,
         use_cache: bool = False,
     ):
         self.dim = dim
@@ -78,18 +79,31 @@ class RBFKernel(Kernel):
             np.ndarray: Kernel value.
         """
         assert (
-            X_1.shape[1] == self.dim and X_2.shape[1] == self.dim
-        ), "Input must be 2-d array"
-        K = np.zeros(shape=(X_1.shape[0], X_2.shape[0]))
-        X_1_norm = np.sum(X_1**2, axis=-1)
-        X_2_norm = np.sum(X_2**2, axis=-1)
-        norm = X_1_norm[:, None] + X_2_norm[None, :] - 2 * np.dot(X_1, X_2.T)
-        K = self.variance**2 * np.exp(-0.5 * norm / self.lengthscale**2)
-        if K.shape[0] == K.shape[1]:
-            if K.shape[0] == 1:
-                K = K.item() + self.obs_var
-            else:
-                K += np.eye(K.shape[0]) * self.obs_var
-        return K
-
+            X_1.ndim <= 3 and X_2.ndim <= 3
+        ), "Kernel Inputs can be maximum 3 dimensional"
+        norm = 0
+        norm += np.sum(X_1**2, axis=1)[:, None] + np.sum(X_2**2, axis=1)[None, :]
+        if X_1.ndim == X_2.ndim == 3:
+            norm -= 2 * np.einsum("ijn,kjn->ikn", X_1, X_2)
+            K = self.variance**2 * np.exp(-0.5 * norm / self.lengthscale**2).sum(
+                axis=-1
+            )
+            if K.shape[0] == K.shape[1]:
+                if K.shape[0] == 1:
+                    K = K.item() + self.obs_var
+                else:
+                    K += np.eye(K.shape[0]) * self.obs_var * X_1.shape[-1]
+        elif X_1.ndim == X_2.ndim == 2:
+            norm -= 2 * np.dot(X_1, X_2.T)
+            K = self.variance**2 * np.exp(-0.5 * norm / self.lengthscale**2)
+            if K.shape[0] == K.shape[1]:
+                if K.shape[0] == 1:
+                    K = K.item() + self.obs_var
+                else:
+                    K += np.eye(K.shape[0]) * self.obs_var
+        elif X_1.ndim == 2 and X_2.ndim == 3:
+            norm -= 2 * np.einsum("ij,kjn->ikn", X_1, X_2)
+            K = self.variance**2 * np.exp(-0.5 * norm / self.lengthscale**2).sum(
+                axis=-1
+            )
         return K
