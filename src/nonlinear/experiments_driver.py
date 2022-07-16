@@ -30,6 +30,7 @@ from src.nonlinear.driver_config import (
     CANDIDATE_POLICY_UPDATE_RATE,
     DIMENSIONALITY,
     IDRL,
+    KERNEL_PARAMS,
     N_JOBS,
     NUM_CANDIDATE_POLICIES,
     NUM_QUERY,
@@ -37,7 +38,6 @@ from src.nonlinear.driver_config import (
     SEEDS,
     SIMULATION_STEPS,
     TRAJECTORY_QUERY,
-    KERNEL_PARAMS,
 )
 
 
