@@ -66,7 +66,7 @@ def simultate(
 
     # Initialize the agents
     agent = Agent(
-        query_expert=env.get_comparison_from_full_state_trajectories,  # env.get_comparison_from_full_states,
+        query_expert=env.get_comparison_from_full_states,
         get_representation=env.get_full_state,
         get_render_representation=env.get_render_state,
         get_optimal_policy_from_reward_function=env.get_optimal_policy_from_reward_function,

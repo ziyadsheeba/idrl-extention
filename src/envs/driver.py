@@ -221,9 +221,17 @@ class Driver:
         feedback = np.random.choice([1, 0], p=[p, 1 - p])
         return feedback
 
-    def get_comparison_from_full_states(self, state_1, state_2):
-        feature_1 = self.get_reward_features(state_1)
-        feature_2 = self.get_reward_features(state_2)
+    def get_comparison_from_full_states(self, state_1, state_2, trajectory=False):
+        if trajectory:
+            feature_1 = np.apply_along_axis(
+                self.get_reward_features, 0, trajectory_1
+            ).sum(axis=1)
+            feature_2 = np.apply_along_axis(
+                self.get_reward_features, 0, trajectory_2
+            ).sum(axis=1)
+        else:
+            feature_1 = self.get_reward_features(state_1)
+            feature_2 = self.get_reward_features(state_2)
         feature_diff = feature_1 - feature_2
         p = expit(np.dot(feature_diff, self.reward_w)).item()
         feedback = np.random.choice([1, 0], p=[p, 1 - p])
@@ -235,27 +243,6 @@ class Driver:
         feature_diff = feature_1 - feature_2
         p = expit(np.dot(feature_diff, self.reward_w)).item()
         feedback = 1 if p >= 0.5 else 0
-        return feedback
-
-    def get_comparison_from_full_state_trajectories(
-        self, trajectory_1: np.ndarray, trajectory_2: np.ndarray
-    ) -> int:
-        """Assumes that a trajectory is a 2 dimensional matrix, the columns represent the states, (dim, episode_length).
-        Args:
-            trajectory_1 (np.ndarray): (dim, episode_length)
-            trajectory_2 (np.ndarray): (dim, episode_length)
-        Returns:
-            int: the binary feedback.
-        """
-        feature_1 = np.apply_along_axis(self.get_reward_features, 0, trajectory_1).sum(
-            axis=1
-        )
-        feature_2 = np.apply_along_axis(self.get_reward_features, 0, trajectory_2).sum(
-            axis=1
-        )
-        feature_diff = feature_1 - feature_2
-        p = expit(np.dot(feature_diff, self.reward_w)).item()
-        feedback = np.random.choice([1, 0], p=[p, 1 - p])
         return feedback
 
     def get_hard_comparison_from_feature_diff(self, feature_diff):
