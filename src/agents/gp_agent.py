@@ -249,7 +249,7 @@ class GPAgent:
         else:
             render_state_1 = rollout_render_representations[queried_idx[0]].squeeze()
             render_state_2 = rollout_render_representations[queried_idx[1]].squeeze()
-        y = self.query_expert(*query_best, self.use_trajectory)
+        y = self.query_expert(*query_best, self.use_trajectories)
         self.counter += 1
         return (
             query_best,

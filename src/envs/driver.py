@@ -221,21 +221,21 @@ class Driver:
         feedback = np.random.choice([1, 0], p=[p, 1 - p])
         return feedback
 
-    def get_comparison_from_full_states(self, state_1, state_2, trajectory=False):
+    def get_comparison_from_full_states(self, query_1, query_2, trajectory=False):
         if trajectory:
-            feature_1 = np.apply_along_axis(
-                self.get_reward_features, 0, trajectory_1
-            ).sum(axis=1)
-            feature_2 = np.apply_along_axis(
-                self.get_reward_features, 0, trajectory_2
-            ).sum(axis=1)
+            feature_1 = np.apply_along_axis(self.get_reward_features, 0, query_1).sum(
+                axis=1
+            )
+            feature_2 = np.apply_along_axis(self.get_reward_features, 0, query_2).sum(
+                axis=1
+            )
         else:
-            feature_1 = self.get_reward_features(state_1)
-            feature_2 = self.get_reward_features(state_2)
+            feature_1 = self.get_reward_features(query_1)
+            feature_2 = self.get_reward_features(query_2)
         feature_diff = feature_1 - feature_2
         p = expit(np.dot(feature_diff, self.reward_w)).item()
         feedback = np.random.choice([1, 0], p=[p, 1 - p])
-        return feedbackget_comparison_from_full_states
+        return feedback
 
     def get_hard_comparison_from_full_states(self, state_1, state_2) -> int:
         feature_1 = self.get_reward_features(state_1)

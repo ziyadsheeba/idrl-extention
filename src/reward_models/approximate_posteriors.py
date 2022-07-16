@@ -11,10 +11,6 @@ from src.utils import matrix_inverse, multivariate_normal_sample, timeit
 
 class ApproximatePosterior(ABC):
     @abstractmethod
-    def get_covariance(self):
-        pass
-
-    @abstractmethod
     def update(self):
         pass
 
@@ -24,6 +20,10 @@ class ApproximatePosterior(ABC):
 
     @abstractmethod
     def get_mean(self):
+        pass
+
+    @abstractmethod
+    def get_covariance(self):
         pass
 
 

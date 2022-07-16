@@ -11,3 +11,4 @@ QUERY_LOGGING_RATE = 1
 IDRL = False
 SEEDS = [0]
 N_JOBS = 1
+KERNEL_PARAMS = {"dim": DIMENSIONALITY, "lengthscale": 0.5, "obs_var": 1}
