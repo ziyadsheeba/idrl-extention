@@ -793,8 +793,6 @@ class GPLogisticRewardModel(LogisticRewardModel):
         if x.ndim == 1:
             x = np.expand_dims(x, axis=0)
         cov = self.approximate_posterior.get_covariance(x, X, self.K_inv, self.cov_map)
-        if x.shape[0] == 1:
-            cov = cov.item()
         return cov
 
     def get_covariates_from_memory(self):
