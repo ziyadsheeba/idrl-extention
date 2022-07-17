@@ -714,14 +714,9 @@ class GPLogisticRewardModel(LogisticRewardModel):
     ):
         if X is None:
             if len(self.X) > 0:
-                if self.trajectory:
-                    X = np.stack(self.X, axis=0)
-                else:
-                    X = np.vstack(self.X)
+                X = self.get_covariates_from_memory()
             else:
-                raise ValueError(
-                    "The memory is empty, must pass explicit covariates and labels."
-                )
+                raise ValueError("The memory is empty, must pass explicit covariates.")
         if K_inv is None:
             K = self.kernel.eval(X, X)
             K_inv = matrix_inverse(K)
@@ -762,10 +757,7 @@ class GPLogisticRewardModel(LogisticRewardModel):
             X (np.ndarray): The input covariates.
             y (np.ndarray): The labels.
         """
-        if self.trajectory:
-            X = np.stack(self.X, axis=0)
-        else:
-            X = np.vstack(self.X)
+        X = self.get_covariates_from_memory()
         return self.approximate_posterior.update(X, np.array(self.y), self.K_inv)
 
     def update_gram_matrix_inverse(self):
@@ -781,27 +773,14 @@ class GPLogisticRewardModel(LogisticRewardModel):
     def sample_current_approximate_distribution(self, x, n_samples: int = 1):
         if x.ndim == 1:
             x = np.expand_dims(x, axis=0)
-        if len(self.X) == 0:
-            X = None
-        else:
-            if self.trajectory:
-                X = np.stack(self.X, axis=0)
-            else:
-                X = np.vstack(self.X)
-
+        X = self.get_covariates_from_memory()
         samples = self.approximate_posterior.sample(x, X, n_samples, self.K_inv)
         if x.shape[0] == 1:
             samples = samples.item()
         return samples
 
     def get_mean(self, x):
-        if len(self.X) == 0:
-            X = None
-        else:
-            if self.trajectory:
-                X = np.stack(self.X, axis=0)
-            else:
-                X = np.vstack(self.X)
+        X = self.get_covariates_from_memory()
         if x.ndim == 1:
             x = np.expand_dims(x, axis=0)
         mean = self.approximate_posterior.get_mean(x, X, self.K_inv)
@@ -810,6 +789,15 @@ class GPLogisticRewardModel(LogisticRewardModel):
         return mean
 
     def get_covariance(self, x):
+        X = self.get_covariates_from_memory()
+        if x.ndim == 1:
+            x = np.expand_dims(x, axis=0)
+        cov = self.approximate_posterior.get_covariance(x, X, self.K_inv, self.cov_map)
+        if x.shape[0] == 1:
+            cov = cov.item()
+        return cov
+
+    def get_covariates_from_memory(self):
         if len(self.X) == 0:
             X = None
         else:
@@ -817,9 +805,4 @@ class GPLogisticRewardModel(LogisticRewardModel):
                 X = np.stack(self.X, axis=0)
             else:
                 X = np.vstack(self.X)
-        if x.ndim == 1:
-            x = np.expand_dims(x, axis=0)
-        cov = self.approximate_posterior.get_covariance(x, X, self.K_inv, self.cov_map)
-        if x.shape[0] == 1:
-            cov = cov.item()
-        return cov
+        return X

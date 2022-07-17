@@ -10,13 +10,8 @@ import pandas as pd
 import tqdm
 
 from src.aquisition_functions.aquisition_functions import (
-    acquisition_function_bounded_ball_map,
-    acquisition_function_bounded_coordinate_hessian,
-    acquisition_function_bounded_hessian,
-    acquisition_function_current_map_hessian,
-    acquisition_function_map_confidence,
-    acquisition_function_map_hessian,
-    acquisition_function_optimal_hessian,
+    acquisition_function_current_map_hessian_gp,
+    acquisition_function_predicted_variance,
     acquisition_function_random,
 )
 from src.reward_models.logistic_reward_models import (
@@ -233,6 +228,14 @@ class GPAgent:
         representation_pairs = get_pairs_from_list(rollout_representations)
         if algorithm == "random":
             query_best, utility, argmax = acquisition_function_random(
+                self.reward_model, representation_pairs, n_jobs=self.n_jobs
+            )
+        elif algorithm == "predicted_variance":
+            query_best, utility, argmax = acquisition_function_predicted_variance(
+                self.reward_model, representation_pairs, n_jobs=self.n_jobs
+            )
+        elif algorithm == "current_map_hessian":
+            query_best, utility, argmax = acquisition_function_current_map_hessian_gp(
                 self.reward_model, representation_pairs, n_jobs=self.n_jobs
             )
         else:
