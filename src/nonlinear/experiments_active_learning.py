@@ -97,15 +97,12 @@ class Agent:
     def get_covariance(self, x):
         return self.reward_model.get_covariance(x)
 
-<<<<<<< HEAD
     def get_current_neglog_likelihood(self, return_mean=True):
         if return_mean:
             return self.reward_model.get_curret_neglog_likelihood() / self.counter
         else:
             return self.reward_model.get_curret_neglog_likelihood()
 
-=======
->>>>>>> debug/gp-1d-viz
     def optimize_query(
         self,
         x_min: float,
@@ -189,11 +186,7 @@ def simultate(
         reward_model=reward_model,
         state_space_dim=dimensionality,
     )
-<<<<<<< HEAD
     neglog_likelihood = {}
-=======
-
->>>>>>> debug/gp-1d-viz
     plt.plot(figsize=(15, 5))
     for step in tqdm(range(simulation_steps)):
         query, label, utility = agent.optimize_query(
@@ -243,11 +236,8 @@ def simultate(
         plt.cla()
         plt.clf()
         agent.update_belief(*query, label)
-<<<<<<< HEAD
         neglog_likelihood[step] = agent.get_current_neglog_likelihood()
         mlflow.log_metric("neglog_likelihood", neglog_likelihood[step], step=step)
-=======
->>>>>>> debug/gp-1d-viz
         # print(utility)
 
 

@@ -122,6 +122,8 @@ class LinearLogisticRewardModel(LogisticRewardModel):
     def neglog_likelihood(
         self, theta: np.ndarray, X: np.ndarray = None, y: np.ndarray = None
     ):
+        if theta.ndim == 1:
+            theta = np.expand_dims(theta, axis=-1)
         if X is None and y is None:
             if len(self.X) > 0:
                 X = np.concatenate(self.X, axis=0)
@@ -212,6 +214,13 @@ class LinearLogisticRewardModel(LogisticRewardModel):
         y_hat = expit(x @ theta).item()
         likelihood = y_hat if y == 1 else 1 - y_hat
         return likelihood
+
+    def predict_label(self, theta: np.ndarray, X: np.ndarray, threshold: float = 0.5):
+        if theta.ndim == 1:
+            theta = np.expand_dims(theta, axis=-1)
+        y_hat = expit(X @ theta).squeeze()
+        y_hat = (y_hat >= threshold).astype(int)
+        return y_hat
 
     def increment_neglog_posterior(
         self,
@@ -819,6 +828,12 @@ class GPLogisticRewardModel(LogisticRewardModel):
             else:
                 X = np.vstack(self.X)
         return X
+
+    def predict_label(self, f_x, threshold: float = 0.5):
+        f_x_reduced = np.array([f_x[i] - f_x[i + 1] for i in range(0, len(f_x), 2)])
+        y_hat = expit(f_x_reduced)
+        y_hat = (y_hat >= threshold).astype(int)
+        return y_hat.squeeze()
 
     def get_curret_neglog_likelihood(self):
         f_hat = self.approximate_posterior.get_current_mode()

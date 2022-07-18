@@ -5,6 +5,7 @@ import os
 import pickle
 import time
 from multiprocessing import Pool
+from pathlib import Path
 from typing import Callable, List, Tuple
 
 import matplotlib
@@ -37,6 +38,7 @@ from src.nonlinear.driver_config import (
     QUERY_LOGGING_RATE,
     SEEDS,
     SIMULATION_STEPS,
+    TESTSET_PATH,
     TRAJECTORY_QUERY,
 )
 
@@ -53,6 +55,7 @@ def simultate(
     trajectory_query: bool,
     n_jobs: int,
     kernel_params: dict,
+    testset_path: Path,
 ):
     # true reward parameter
     env = get_driver_target_velocity()
@@ -83,10 +86,12 @@ def simultate(
         use_trajectories=trajectory_query,
         num_query=num_query,
         n_jobs=n_jobs,
+        testset_path=testset_path,
     )
 
     policy_regret = {}
     neglog_likelihood = {}
+    accuracy = {}
     with tqdm(range(simulation_steps), unit="step") as steps:
         for step in steps:
             query_best, label, queried_states = agent.optimize_query(
@@ -99,10 +104,13 @@ def simultate(
             r_optimal = env.simulate(optimal_policy)
             r_diff = r_optimal - r_estimate
             policy_regret[step] = r_diff if r_diff > 0 else 0
-            neglog_likelihood[step] = agent.get_current_neglog_likelihood()
+            neglog_likelihood[step] = agent.get_testset_neglog_likelihood()
+            accuracy[step] = agent.get_testset_accuracy()
+
             mlflow.log_metric("policy_regret", policy_regret[step], step=step)
-            steps.set_description(f"Policy Regret {policy_regret[step]}")
             mlflow.log_metric("neglog_likelihood", neglog_likelihood[step], step=step)
+            mlflow.log_metric("accuracy", accuracy[step], step=step)
+            steps.set_description(f"Policy Regret {policy_regret[step]}")
 
             if step % query_logging_rate == 0:
 
@@ -155,6 +163,7 @@ def execute(seed):
             trajectory_query=TRAJECTORY_QUERY,
             n_jobs=N_JOBS,
             kernel_params=KERNEL_PARAMS,
+            testset_path=TESTSET_PATH,
         )
 
 
