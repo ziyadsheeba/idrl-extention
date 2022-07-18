@@ -75,7 +75,7 @@ def simultate(
     )
     # Initialize the agents
     agent = Agent(
-        query_expert=env.get_comparison_from_feature_diff,
+        query_expert=env.get_comparison_from_features,
         state_to_features=env.get_reward_features,
         state_to_render_state=env.get_render_state,
         get_optimal_policy=env.get_optimal_policy,
@@ -123,10 +123,10 @@ def simultate(
                     "neglog_likelihood", neglog_likelihood[step], step=step
                 )
 
-            query_best, label, utility, queried_states = agent.optimize_query(
+            query_best, label, queried_states = agent.optimize_query(
                 algorithm=algorithm, n_jobs=8
             )
-            agent.update_belief(query_best, label)
+            agent.update_belief(*query_best, label)
             if step % query_logging_rate == 0:
 
                 # solve for the mean policy

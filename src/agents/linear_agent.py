@@ -69,7 +69,8 @@ class LinearAgent:
         self.v = None
         self.counter = 0
 
-    def update_belief(self, x: np.ndarray, y: np.ndarray) -> None:
+    def update_belief(self, x1: np.ndarray, x2, y: np.ndarray) -> None:
+        x = x1 - x2
         self.reward_model.update(x, y)
 
     def get_parameters_estimate(self):
@@ -260,9 +261,8 @@ class LinearAgent:
                 )
             )
 
-        rollout_features = [x for x in rollout_features]
-        feature_pairs = get_pairs_from_list(rollout_features)
-        candidate_queries = [np.expand_dims(a - b, axis=0) for a, b in feature_pairs]
+        rollout_features = [np.expand_dims(x, axis=0) for x in rollout_features]
+        candidate_queries = get_pairs_from_list(rollout_features)
 
         if algorithm == "bounded_hessian":
             query_best, utility, argmax = acquisition_function_bounded_hessian(
@@ -305,8 +305,7 @@ class LinearAgent:
             )
         else:
             raise NotImplementedError()
-        y = self.query_expert(query_best.squeeze().tolist())
-
+        y = self.query_expert(*query_best, False)
         idxs = get_pairs_from_list(range(len(rollout_features)))
         queried_idx = idxs[argmax]
         if self.use_trajectories:
@@ -315,12 +314,9 @@ class LinearAgent:
         else:
             query_best_1 = rollout_render_states[queried_idx[0]].squeeze()
             query_best_2 = rollout_render_states[queried_idx[1]].squeeze()
-
-        candidate_queries = [x.tobytes() for x in candidate_queries]
         self.counter += 1
         return (
             query_best,
             y,
-            dict(zip(candidate_queries, utility)),
             (query_best_1, query_best_2),
         )

@@ -19,7 +19,7 @@ X_MAX = [
     0.2,  # y distance
 ]
 PRIOR_VARIANCE_SCALE = 10
-ALGORITHM = "random"
+ALGORITHM = "current_map_hessian"
 SIMULATION_STEPS = 500
 NUM_CANDIDATE_POLICIES = 8
 NUM_QUERY = 400  # number of states, the number of queries will be n*(n-1)/4
