@@ -1,10 +1,10 @@
 """Experiments Config 
 """
-ALGORITHM = "random"
+ALGORITHM = "predicted_variance"
 DIMENSIONALITY = 1
 X_MIN = -3
 X_MAX = 3
-N_SAMPLES = 200
+N_SAMPLES = 50
 PLOT = False
 SEED = 10
 SIMULATION_STEPS = 1000

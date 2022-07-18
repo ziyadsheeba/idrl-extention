@@ -194,6 +194,12 @@ class Driver:
             state.extend(car.state)
         return np.array(state)
 
+    def get_feature_relevant_state(self):
+        state = copy.deepcopy(self.state)
+        for car in self.cars:
+            state.extend(car.state[:2])
+        return np.array(state)
+
     def _update_state(self, state, u1, u2):
         x, y, theta, v = state
         dx = v * np.cos(theta)
@@ -215,7 +221,13 @@ class Driver:
         feedback = np.random.choice([1, 0], p=[p, 1 - p])
         return feedback
 
-    def get_comparison_from_features(self, feature_1, feature_2):
+    def get_comparison_from_features(self, query_1, query_2, trajectory=False):
+        if trajectory:
+            feature_1 = query_1.sum(axis=1)
+            feature_2 = query_2.sum(axis=1)
+        else:
+            feature_1 = query_1
+            feature_2 = query_2
         feature_diff = feature_1 - feature_2
         p = expit(np.dot(feature_diff, self.reward_w)).item()
         feedback = np.random.choice([1, 0], p=[p, 1 - p])
@@ -418,7 +430,6 @@ class Driver:
             policy_repeat.extend([optimal_policy[2 * i : 2 * i + 2]] * n_action_repeat)
         return np.array(policy_repeat)
 
-    @timeit
     def get_optimal_policy_from_reward_function(
         self,
         reward_function: Callable,

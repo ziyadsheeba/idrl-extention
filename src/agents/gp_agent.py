@@ -13,6 +13,7 @@ from src.aquisition_functions.aquisition_functions import (
     acquisition_function_current_map_hessian_gp,
     acquisition_function_predicted_variance,
     acquisition_function_random,
+    acquisition_function_variance_ratio,
 )
 from src.reward_models.logistic_reward_models import (
     GPLogisticRewardModel,
@@ -75,6 +76,12 @@ class GPAgent:
 
     def get_reward_estimate(self, x: np.ndarray):
         return self.reward_model.get_mean(x)
+
+    def get_current_neglog_likelihood(self, return_mean=True):
+        if return_mean:
+            return self.reward_model.get_curret_neglog_likelihood() / self.counter
+        else:
+            return self.reward_model.get_curret_neglog_likelihood()
 
     def sample_reward(self, x, n_samples: int = 1):
         return self.reward_model.sample_current_approximate_distribution(x, n_samples)
@@ -236,6 +243,10 @@ class GPAgent:
             )
         elif algorithm == "current_map_hessian":
             query_best, utility, argmax = acquisition_function_current_map_hessian_gp(
+                self.reward_model, representation_pairs, n_jobs=self.n_jobs
+            )
+        elif algorithm == "variance_ratio":
+            query_best, utility, argmax = acquisition_function_variance_ratio(
                 self.reward_model, representation_pairs, n_jobs=self.n_jobs
             )
         else:

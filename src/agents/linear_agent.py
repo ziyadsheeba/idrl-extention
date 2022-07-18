@@ -75,6 +75,12 @@ class LinearAgent:
     def get_parameters_estimate(self):
         return self.reward_model.get_parameters_estimate().squeeze()
 
+    def get_current_neglog_likelihood(self, return_mean=True):
+        if return_mean:
+            return self.reward_model.get_curret_neglog_likelihood() / self.counter
+        else:
+            return self.reward_model.get_curret_neglog_likelihood()
+
     def sample_parameters(self, n_samples: int = 5, method="approximate_posterior"):
         if method == "approximate_posterior":
             return self.reward_model.sample_current_approximate_distribution(

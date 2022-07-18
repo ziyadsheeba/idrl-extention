@@ -119,6 +119,21 @@ class LinearLogisticRewardModel(LogisticRewardModel):
                 neglog_posterior_gradient=self.neglog_posterior_gradient,
             )
 
+    def neglog_likelihood(
+        self, theta: np.ndarray, X: np.ndarray = None, y: np.ndarray = None
+    ):
+        if X is None and y is None:
+            if len(self.X) > 0:
+                X = np.concatenate(self.X, axis=0)
+                y = np.array(self.y)
+            else:
+                assert len(self.y) == 0, "No covariates by labels exist in memory"
+        eps = 1e-10
+        y_hat = expit(X @ theta).squeeze()
+        return (
+            -np.sum(y * np.log(y_hat + eps) + (1 - y) * np.log(1 - y_hat + eps))
+        ).item()
+
     def neglog_posterior(
         self, theta: np.ndarray, y: np.ndarray = None, X: np.ndarray = None
     ) -> float:
@@ -223,17 +238,13 @@ class LinearLogisticRewardModel(LogisticRewardModel):
         y = np.array(_y)
         if theta.shape == (self.dim,):
             theta = np.expand_dims(theta, axis=-1)
-        eps = 1e-10
-        y_hat = expit(X @ theta).squeeze()
         neg_logprior = (
             0.5
             * (theta - self.prior_mean).T
             @ self.prior_precision
             @ (theta - self.prior_mean)
         ).item()
-        neg_loglikelihood = (
-            -np.sum(y * np.log(y_hat + eps) + (1 - y) * np.log(1 - y_hat + eps))
-        ).item()
+        neg_loglikelihood = self.neglog_likelihood(theta=theta, X=X, y=y)
         return neg_logprior + neg_loglikelihood
 
     def neglog_posterior_hessian(
@@ -555,6 +566,10 @@ class LinearLogisticRewardModel(LogisticRewardModel):
         y = np.array(_y)
         return self.approximate_posterior.simulate_update(X, y)
 
+    def get_curret_neglog_likelihood(self):
+        theta = self.get_parameters_estimate()
+        return self.neglog_likelihood(theta=theta)
+
 
 class GPLogisticRewardModel(LogisticRewardModel):
     def __init__(
@@ -804,3 +819,11 @@ class GPLogisticRewardModel(LogisticRewardModel):
             else:
                 X = np.vstack(self.X)
         return X
+
+    def get_curret_neglog_likelihood(self):
+        f_hat = self.approximate_posterior.get_current_mode()
+        if f_hat is not None:
+            y = np.array(self.y)
+            return self.neglog_likelihood(f_hat, y)
+        else:
+            return None

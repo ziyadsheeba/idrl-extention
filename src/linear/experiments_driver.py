@@ -93,6 +93,7 @@ def simultate(
 
     policy_regret = {}
     cosine_distance = {}
+    neglog_likelihood = {}
     with tqdm(range(simulation_steps), unit="step") as steps:
         for step in steps:
             # compute policy_regret and cosine similarity
@@ -112,16 +113,20 @@ def simultate(
                 if np.linalg.norm(theta_hat) > 0
                 else 1
             )
-
             mlflow.log_metric("policy_regret", policy_regret[step], step=step)
             mlflow.log_metric("cosine_distance", cosine_distance[step], step=step)
             steps.set_description(f"Policy Regret {policy_regret[step]}")
+
+            if agent.counter > 0:
+                neglog_likelihood[step] = agent.get_current_neglog_likelihood()
+                mlflow.log_metric(
+                    "neglog_likelihood", neglog_likelihood[step], step=step
+                )
 
             query_best, label, utility, queried_states = agent.optimize_query(
                 algorithm=algorithm, n_jobs=8
             )
             agent.update_belief(query_best, label)
-
             if step % query_logging_rate == 0:
 
                 # solve for the mean policy
@@ -152,7 +157,7 @@ def simultate(
 def execute(seed):
     np.random.seed(seed)
 
-    mlflow.set_experiment(f"driver/{ALGORITHM}")
+    mlflow.set_experiment(f"driver/linear/{ALGORITHM}")
     with mlflow.start_run():
         mlflow.log_param("algorithm", ALGORITHM)
         mlflow.log_param("dimensionality", DIMENSIONALITY)
