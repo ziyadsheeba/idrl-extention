@@ -105,9 +105,11 @@ class GPLaplaceApproximation(ApproximatePosterior):
                 K_inv = matrix_inverse(K)
             mean = self.kernel.eval(x, X) @ K_inv @ (self.f_hat - self.prior_mean(X))
         else:
-            warnings.warn("Returning Prior Mean")
             mean = self.prior_mean(x)
         return mean
+
+    def get_current_mode(self):
+        return self.f_hat
 
     def get_covariance(
         self,
@@ -132,7 +134,6 @@ class GPLaplaceApproximation(ApproximatePosterior):
                 + k_x_X @ K_inv @ cov_map @ K_inv @ k_x_X.T
             )
         else:
-            warnings.warn("Returning Prior Covariance")
             cov = self.kernel.eval(x, x)
         return cov
 

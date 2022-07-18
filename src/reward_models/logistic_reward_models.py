@@ -119,6 +119,23 @@ class LinearLogisticRewardModel(LogisticRewardModel):
                 neglog_posterior_gradient=self.neglog_posterior_gradient,
             )
 
+    def neglog_likelihood(
+        self, theta: np.ndarray, X: np.ndarray = None, y: np.ndarray = None
+    ):
+        if theta.ndim == 1:
+            theta = np.expand_dims(theta, axis=-1)
+        if X is None and y is None:
+            if len(self.X) > 0:
+                X = np.concatenate(self.X, axis=0)
+                y = np.array(self.y)
+            else:
+                assert len(self.y) == 0, "No covariates by labels exist in memory"
+        eps = 1e-10
+        y_hat = expit(X @ theta).squeeze()
+        return (
+            -np.sum(y * np.log(y_hat + eps) + (1 - y) * np.log(1 - y_hat + eps))
+        ).item()
+
     def neglog_posterior(
         self, theta: np.ndarray, y: np.ndarray = None, X: np.ndarray = None
     ) -> float:
@@ -198,6 +215,13 @@ class LinearLogisticRewardModel(LogisticRewardModel):
         likelihood = y_hat if y == 1 else 1 - y_hat
         return likelihood
 
+    def predict_label(self, theta: np.ndarray, X: np.ndarray, threshold: float = 0.5):
+        if theta.ndim == 1:
+            theta = np.expand_dims(theta, axis=-1)
+        y_hat = expit(X @ theta).squeeze()
+        y_hat = (y_hat >= threshold).astype(int)
+        return y_hat
+
     def increment_neglog_posterior(
         self,
         theta: np.ndarray,
@@ -223,17 +247,13 @@ class LinearLogisticRewardModel(LogisticRewardModel):
         y = np.array(_y)
         if theta.shape == (self.dim,):
             theta = np.expand_dims(theta, axis=-1)
-        eps = 1e-10
-        y_hat = expit(X @ theta).squeeze()
         neg_logprior = (
             0.5
             * (theta - self.prior_mean).T
             @ self.prior_precision
             @ (theta - self.prior_mean)
         ).item()
-        neg_loglikelihood = (
-            -np.sum(y * np.log(y_hat + eps) + (1 - y) * np.log(1 - y_hat + eps))
-        ).item()
+        neg_loglikelihood = self.neglog_likelihood(theta=theta, X=X, y=y)
         return neg_logprior + neg_loglikelihood
 
     def neglog_posterior_hessian(
@@ -555,6 +575,10 @@ class LinearLogisticRewardModel(LogisticRewardModel):
         y = np.array(_y)
         return self.approximate_posterior.simulate_update(X, y)
 
+    def get_curret_neglog_likelihood(self):
+        theta = self.get_parameters_estimate()
+        return self.neglog_likelihood(theta=theta)
+
 
 class GPLogisticRewardModel(LogisticRewardModel):
     def __init__(
@@ -714,14 +738,9 @@ class GPLogisticRewardModel(LogisticRewardModel):
     ):
         if X is None:
             if len(self.X) > 0:
-                if self.trajectory:
-                    X = np.stack(self.X, axis=0)
-                else:
-                    X = np.vstack(self.X)
+                X = self.get_covariates_from_memory()
             else:
-                raise ValueError(
-                    "The memory is empty, must pass explicit covariates and labels."
-                )
+                raise ValueError("The memory is empty, must pass explicit covariates.")
         if K_inv is None:
             K = self.kernel.eval(X, X)
             K_inv = matrix_inverse(K)
@@ -762,10 +781,7 @@ class GPLogisticRewardModel(LogisticRewardModel):
             X (np.ndarray): The input covariates.
             y (np.ndarray): The labels.
         """
-        if self.trajectory:
-            X = np.stack(self.X, axis=0)
-        else:
-            X = np.vstack(self.X)
+        X = self.get_covariates_from_memory()
         return self.approximate_posterior.update(X, np.array(self.y), self.K_inv)
 
     def update_gram_matrix_inverse(self):
@@ -781,27 +797,14 @@ class GPLogisticRewardModel(LogisticRewardModel):
     def sample_current_approximate_distribution(self, x, n_samples: int = 1):
         if x.ndim == 1:
             x = np.expand_dims(x, axis=0)
-        if len(self.X) == 0:
-            X = None
-        else:
-            if self.trajectory:
-                X = np.stack(self.X, axis=0)
-            else:
-                X = np.vstack(self.X)
-
+        X = self.get_covariates_from_memory()
         samples = self.approximate_posterior.sample(x, X, n_samples, self.K_inv)
         if x.shape[0] == 1:
             samples = samples.item()
         return samples
 
     def get_mean(self, x):
-        if len(self.X) == 0:
-            X = None
-        else:
-            if self.trajectory:
-                X = np.stack(self.X, axis=0)
-            else:
-                X = np.vstack(self.X)
+        X = self.get_covariates_from_memory()
         if x.ndim == 1:
             x = np.expand_dims(x, axis=0)
         mean = self.approximate_posterior.get_mean(x, X, self.K_inv)
@@ -810,6 +813,13 @@ class GPLogisticRewardModel(LogisticRewardModel):
         return mean
 
     def get_covariance(self, x):
+        X = self.get_covariates_from_memory()
+        if x.ndim == 1:
+            x = np.expand_dims(x, axis=0)
+        cov = self.approximate_posterior.get_covariance(x, X, self.K_inv, self.cov_map)
+        return cov
+
+    def get_covariates_from_memory(self):
         if len(self.X) == 0:
             X = None
         else:
@@ -817,9 +827,18 @@ class GPLogisticRewardModel(LogisticRewardModel):
                 X = np.stack(self.X, axis=0)
             else:
                 X = np.vstack(self.X)
-        if x.ndim == 1:
-            x = np.expand_dims(x, axis=0)
-        cov = self.approximate_posterior.get_covariance(x, X, self.K_inv, self.cov_map)
-        if x.shape[0] == 1:
-            cov = cov.item()
-        return cov
+        return X
+
+    def predict_label(self, f_x, threshold: float = 0.5):
+        f_x_reduced = np.array([f_x[i] - f_x[i + 1] for i in range(0, len(f_x), 2)])
+        y_hat = expit(f_x_reduced)
+        y_hat = (y_hat >= threshold).astype(int)
+        return y_hat.squeeze()
+
+    def get_curret_neglog_likelihood(self):
+        f_hat = self.approximate_posterior.get_current_mode()
+        if f_hat is not None:
+            y = np.array(self.y)
+            return self.neglog_likelihood(f_hat, y)
+        else:
+            return None

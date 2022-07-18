@@ -5,6 +5,7 @@ import os
 import pickle
 import time
 from multiprocessing import Pool
+from pathlib import Path
 from typing import Callable, List, Tuple
 
 import matplotlib
@@ -37,6 +38,7 @@ from src.nonlinear.driver_config import (
     QUERY_LOGGING_RATE,
     SEEDS,
     SIMULATION_STEPS,
+    TESTSET_PATH,
     TRAJECTORY_QUERY,
 )
 
@@ -53,6 +55,7 @@ def simultate(
     trajectory_query: bool,
     n_jobs: int,
     kernel_params: dict,
+    testset_path: Path,
 ):
     # true reward parameter
     env = get_driver_target_velocity()
@@ -68,8 +71,8 @@ def simultate(
 
     # Initialize the agents
     agent = Agent(
-        query_expert=env.get_comparison_from_full_states,
-        get_representation=env.get_full_state,
+        query_expert=env.get_comparison_from_full_states,  # env.get_comparison_from_features,
+        get_representation=env.get_full_state,  # env.get_reward_features,
         get_render_representation=env.get_render_state,
         get_optimal_policy_from_reward_function=env.get_optimal_policy_from_reward_function,
         env_step=env.step,
@@ -83,25 +86,31 @@ def simultate(
         use_trajectories=trajectory_query,
         num_query=num_query,
         n_jobs=n_jobs,
+        testset_path=testset_path,
     )
 
     policy_regret = {}
-    cosine_distance = {}
+    neglog_likelihood = {}
+    accuracy = {}
     with tqdm(range(simulation_steps), unit="step") as steps:
         for step in steps:
+            query_best, label, queried_states = agent.optimize_query(
+                algorithm=algorithm, n_jobs=n_jobs
+            )
+            agent.update_belief(*query_best, label)
+
             estimated_policy = agent.get_mean_optimal_policy()
             r_estimate = env.simulate(estimated_policy)
             r_optimal = env.simulate(optimal_policy)
             r_diff = r_optimal - r_estimate
             policy_regret[step] = r_diff if r_diff > 0 else 0
+            neglog_likelihood[step] = agent.get_testset_neglog_likelihood()
+            accuracy[step] = agent.get_testset_accuracy()
 
             mlflow.log_metric("policy_regret", policy_regret[step], step=step)
+            mlflow.log_metric("neglog_likelihood", neglog_likelihood[step], step=step)
+            mlflow.log_metric("accuracy", accuracy[step], step=step)
             steps.set_description(f"Policy Regret {policy_regret[step]}")
-
-            query_best, label, queried_states = agent.optimize_query(
-                algorithm=algorithm, n_jobs=1
-            )
-            agent.update_belief(*query_best, label)
 
             if step % query_logging_rate == 0:
 
@@ -125,6 +134,7 @@ def simultate(
                     mlflow.log_figure(fig_queries, f"queries_{step}.png")
                 plt.close("all")
         mlflow.log_dict(policy_regret, "policy_regret.json")
+        mlflow.log_dict(neglog_likelihood, "neglog_likelihood.json")
 
 
 def execute(seed):
@@ -153,6 +163,7 @@ def execute(seed):
             trajectory_query=TRAJECTORY_QUERY,
             n_jobs=N_JOBS,
             kernel_params=KERNEL_PARAMS,
+            testset_path=TESTSET_PATH,
         )
 
 

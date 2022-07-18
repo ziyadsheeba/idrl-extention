@@ -59,7 +59,7 @@ class RBFKernel(Kernel):
         self,
         dim: int,
         variance: float = 1,
-        lengthscale: float = 0.5,
+        lengthscale: float = 1e-8,
         obs_var: float = 1,
         use_cache: bool = False,
     ):
