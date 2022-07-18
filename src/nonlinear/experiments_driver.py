@@ -169,4 +169,4 @@ def execute(seed):
 
 if __name__ == "__main__":
     for seed in SEEDS:
-        execute(10)
+        execute(seed)

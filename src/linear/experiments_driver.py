@@ -194,7 +194,5 @@ def execute(seed):
 
 
 if __name__ == "__main__":
-    # pool = Pool(processes=N_PROCESSES)
-    # for seed in tqdm(pool.imap_unordered(execute, SEEDS), total=len(SEEDS)):
-    #     pass
-    execute(10)
+    for seed in SEEDS:
+        execute(seed)
