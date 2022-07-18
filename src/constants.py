@@ -13,6 +13,12 @@ DRIVER_METADATA_PATH = PROJECT_PATH / "env_metadata" / "driver"
 # Env Precomputed Policies
 DRIVER_PRECOMPUTED_POLICIES_PATH = PROJECT_PATH / "env_policies" / "driver"
 
+# Env Testset Path
+DRIVER_TESTSET_PATH = PROJECT_PATH / "env_testset" / "driver"
+DRIVER_STATES_TESTSET_PATH = DRIVER_TESTSET_PATH / "states"
+DRIVER_TRAJECTORIES_TESTSET_PATH = DRIVER_TESTSET_PATH / "trajectories"
+
+
 # source: https://gist.github.com/thriveth/8560036
 color_cycle = [
     "#377eb8",

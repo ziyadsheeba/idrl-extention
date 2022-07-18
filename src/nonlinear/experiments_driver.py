@@ -14,46 +14,38 @@ import mlflow
 import numpy as np
 import pandas as pd
 import typer
+from memory_profiler import profile
 from scipy import spatial
 from tqdm import tqdm
 
-from src.agents.linear_agent import LinearAgent as Agent
+from src.agents.gp_agent import GPAgent as Agent
 from src.constants import DRIVER_PRECOMPUTED_POLICIES_PATH
 from src.envs.driver import get_driver_target_velocity
-from src.reward_models.logistic_reward_models import (
-    LinearLogisticRewardModel,
-    LogisticRewardModel,
-)
+from src.reward_models.kernels import LinearKernel, RBFKernel
+from src.reward_models.logistic_reward_models import GPLogisticRewardModel
 
 plt.style.use("ggplot")
 
-from src.linear.driver_config import (
+from src.nonlinear.driver_config import (
     ALGORITHM,
     CANDIDATE_POLICY_UPDATE_RATE,
     DIMENSIONALITY,
     IDRL,
-    N_PROCESSES,
+    KERNEL_PARAMS,
+    N_JOBS,
     NUM_CANDIDATE_POLICIES,
     NUM_QUERY,
-    PRIOR_VARIANCE_SCALE,
     QUERY_LOGGING_RATE,
     SEEDS,
     SIMULATION_STEPS,
     TESTSET_PATH,
-    THETA_NORM,
     TRAJECTORY_QUERY,
-    X_MAX,
-    X_MIN,
 )
 
 
 def simultate(
     algorithm: str,
     dimensionality: int,
-    theta_norm: float,
-    x_min: float,
-    x_max: float,
-    prior_variance_scale: float,
     simulation_steps: int,
     num_candidate_policies: int,
     candidate_policy_update_rate: int,
@@ -61,7 +53,9 @@ def simultate(
     num_query: int,
     idrl: bool,
     trajectory_query: bool,
-    testset_path: Path = None,
+    n_jobs: int,
+    kernel_params: dict,
+    testset_path: Path,
 ):
     # true reward parameter
     env = get_driver_target_velocity()
@@ -69,19 +63,18 @@ def simultate(
     optimal_policy = env.get_optimal_policy()
 
     # Initialize the reward model
-    reward_model = LinearLogisticRewardModel(
+    reward_model = GPLogisticRewardModel(
         dim=dimensionality,
-        prior_variance=prior_variance_scale * (theta_norm) ** 2 / 2,
-        param_norm=theta_norm,
-        x_min=x_min,
-        x_max=x_max,
+        kernel=RBFKernel(**kernel_params),
+        trajectory=trajectory_query,
     )
+
     # Initialize the agents
     agent = Agent(
-        query_expert=env.get_comparison_from_features,
-        state_to_features=env.get_reward_features,
-        state_to_render_state=env.get_render_state,
-        get_optimal_policy=env.get_optimal_policy,
+        query_expert=env.get_comparison_from_full_states,  # env.get_comparison_from_features,
+        get_representation=env.get_full_state,  # env.get_reward_features,
+        get_render_representation=env.get_render_state,
+        get_optimal_policy_from_reward_function=env.get_optimal_policy_from_reward_function,
         env_step=env.step,
         env_reset=env.reset,
         precomputed_policy_path=DRIVER_PRECOMPUTED_POLICIES_PATH / "policies.pkl",
@@ -89,53 +82,39 @@ def simultate(
         num_candidate_policies=num_candidate_policies,
         idrl=idrl,
         candidate_policy_update_rate=candidate_policy_update_rate,
-        feature_space_dim=dimensionality,
+        representation_space_dim=dimensionality,
         use_trajectories=trajectory_query,
         num_query=num_query,
+        n_jobs=n_jobs,
         testset_path=testset_path,
     )
 
     policy_regret = {}
-    cosine_distance = {}
     neglog_likelihood = {}
     accuracy = {}
     with tqdm(range(simulation_steps), unit="step") as steps:
         for step in steps:
-            # compute policy_regret and cosine similarity
-            theta_hat = agent.get_parameters_estimate().squeeze()
-            theta_hat = (
-                theta_hat / np.linalg.norm(theta_hat)
-                if np.linalg.norm(theta_hat) > 0
-                else theta_hat
+            query_best, label, queried_states = agent.optimize_query(
+                algorithm=algorithm, n_jobs=n_jobs
             )
-            estimated_policy = env.get_optimal_policy(theta=theta_hat)
+            agent.update_belief(*query_best, label)
+
+            estimated_policy = agent.get_mean_optimal_policy()
             r_estimate = env.simulate(estimated_policy)
             r_optimal = env.simulate(optimal_policy)
             r_diff = r_optimal - r_estimate
             policy_regret[step] = r_diff if r_diff > 0 else 0
-            cosine_distance[step] = (
-                spatial.distance.cosine(theta_true, theta_hat)
-                if np.linalg.norm(theta_hat) > 0
-                else 1
-            )
             neglog_likelihood[step] = agent.get_testset_neglog_likelihood()
             accuracy[step] = agent.get_testset_accuracy()
 
             mlflow.log_metric("policy_regret", policy_regret[step], step=step)
-            mlflow.log_metric("cosine_distance", cosine_distance[step], step=step)
             mlflow.log_metric("neglog_likelihood", neglog_likelihood[step], step=step)
             mlflow.log_metric("accuracy", accuracy[step], step=step)
             steps.set_description(f"Policy Regret {policy_regret[step]}")
 
-            query_best, label, queried_states = agent.optimize_query(
-                algorithm=algorithm, n_jobs=8
-            )
-            agent.update_belief(*query_best, label)
             if step % query_logging_rate == 0:
 
-                # solve for the mean policy
-                policy = env.get_optimal_policy(theta=theta_hat)
-                env.simulate(policy)
+                env.simulate(estimated_policy)
 
                 # plot the history
                 env.plot_history()
@@ -155,33 +134,26 @@ def simultate(
                     mlflow.log_figure(fig_queries, f"queries_{step}.png")
                 plt.close("all")
         mlflow.log_dict(policy_regret, "policy_regret.json")
-        mlflow.log_dict(cosine_distance, "cosine_distance.json")
+        mlflow.log_dict(neglog_likelihood, "neglog_likelihood.json")
 
 
 def execute(seed):
     np.random.seed(seed)
 
-    mlflow.set_experiment(f"driver/linear/{ALGORITHM}")
+    mlflow.set_experiment(f"driver/gp/{ALGORITHM}")
     with mlflow.start_run():
         mlflow.log_param("algorithm", ALGORITHM)
         mlflow.log_param("dimensionality", DIMENSIONALITY)
-        mlflow.log_param("theta_norm", THETA_NORM)
-        mlflow.log_param("x_min", X_MIN)
-        mlflow.log_param("x_max", X_MAX)
-        mlflow.log_param("prior_variance_scale", PRIOR_VARIANCE_SCALE)
         mlflow.log_param("canidate_policy_update_rate", CANDIDATE_POLICY_UPDATE_RATE)
         mlflow.log_param("num_candidate_policies", NUM_CANDIDATE_POLICIES)
         mlflow.log_param("idrl", IDRL)
         mlflow.log_param("use_trajectories", TRAJECTORY_QUERY)
         mlflow.log_param("seed", seed)
+        mlflow.log_params(KERNEL_PARAMS)
 
         simultate(
             algorithm=ALGORITHM,
             dimensionality=DIMENSIONALITY,
-            theta_norm=THETA_NORM,
-            x_min=X_MIN,
-            x_max=X_MAX,
-            prior_variance_scale=PRIOR_VARIANCE_SCALE,
             simulation_steps=SIMULATION_STEPS,
             candidate_policy_update_rate=CANDIDATE_POLICY_UPDATE_RATE,
             num_candidate_policies=NUM_CANDIDATE_POLICIES,
@@ -189,6 +161,8 @@ def execute(seed):
             num_query=NUM_QUERY,
             idrl=IDRL,
             trajectory_query=TRAJECTORY_QUERY,
+            n_jobs=N_JOBS,
+            kernel_params=KERNEL_PARAMS,
             testset_path=TESTSET_PATH,
         )
 

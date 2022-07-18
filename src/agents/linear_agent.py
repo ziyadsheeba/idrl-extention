@@ -34,13 +34,14 @@ class LinearAgent:
         env_reset: Callable,
         env_step: Callable,
         precomputed_policy_path: Path,
-        reward_model: LogisticRewardModel,
+        reward_model: LinearLogisticRewardModel,
         num_candidate_policies: int,
         idrl: bool,
         candidate_policy_update_rate: int,
         feature_space_dim: int,
         use_trajectories: bool,
         num_query: int,
+        testset_path: Path = None,
     ):
         """
         Args:
@@ -62,18 +63,77 @@ class LinearAgent:
         self.num_candidate_policies = num_candidate_policies
         self.use_trajectories = use_trajectories
         self.num_query = num_query
-
-        with open(str(precomputed_policy_path), "rb") as f:
-            self.precomputed_policies = pickle.load(f)
-
+        self.precomputed_policy_path = precomputed_policy_path
+        self.precomputed_policies = None
         self.v = None
         self.counter = 0
+        self.testset_path = testset_path
+        self.X_test = None
+        self.y_test = None
 
-    def update_belief(self, x: np.ndarray, y: np.ndarray) -> None:
+        self.load_precomputed_policies()
+        self.load_testset()
+
+    def load_precomputed_policies(self):
+        with open(str(self.precomputed_policy_path), "rb") as f:
+            self.precomputed_policies = pickle.load(f)
+
+    def load_testset(self):
+        if self.testset_path is not None:
+            with open(str(self.testset_path / "testset.pkl"), "rb") as f:
+                testset = pickle.load(f)
+            with open(str(self.testset_path / "query_shape.pkl"), "rb") as f:
+                query_shape = pickle.load(f)
+            if self.use_trajectories:
+                covariates = [
+                    (
+                        np.apply_along_axis(
+                            self.state_to_features,
+                            0,
+                            np.frombuffer(a).reshape(query_shape),
+                        ).sum(axis=1)
+                        - np.apply_along_axis(
+                            self.state_to_features,
+                            0,
+                            np.frombuffer(b).reshape(query_shape),
+                        ).sum(axis=1)
+                    )
+                    for a, b in testset.keys()
+                ]
+            else:
+                covariates = [
+                    self.state_to_features(np.frombuffer(a).reshape(query_shape))
+                    - self.state_to_features(np.frombuffer(b).reshape(query_shape))
+                    for a, b in testset.keys()
+                ]
+            self.X_test = np.vstack(covariates)
+            self.y_test = np.array(list(testset.values()))
+
+    def update_belief(self, x1: np.ndarray, x2, y: np.ndarray) -> None:
+        x = x1 - x2
         self.reward_model.update(x, y)
 
     def get_parameters_estimate(self):
         return self.reward_model.get_parameters_estimate().squeeze()
+
+    def get_testset_neglog_likelihood(self):
+        if self.testset_path is not None:
+            theta = self.get_parameters_estimate()
+            return self.reward_model.neglog_likelihood(
+                theta, self.X_test, self.y_test
+            ) / len(self.y_test)
+        else:
+            raise ValueError()
+
+    def get_testset_accuracy(self, threshold: float = 0.5):
+        if self.testset_path is not None:
+            theta = self.get_parameters_estimate()
+            y_hat = self.reward_model.predict_label(theta, self.X_test, threshold)
+            y_test = (self.y_test >= threshold).astype(int)
+            accuracy = (y_hat == y_test).sum() / len(self.y_test)
+            return accuracy
+        else:
+            raise ValueError()
 
     def sample_parameters(self, n_samples: int = 5, method="approximate_posterior"):
         if method == "approximate_posterior":
@@ -208,7 +268,7 @@ class LinearAgent:
             features = self.get_features_from_policies(
                 _policies, return_trajectories=False
             )
-            render_states = get_render_state_from_policies(
+            render_states = self.get_render_state_from_policies(
                 _policies, return_trajectories=False
             )
             idx = np.random.choice(
@@ -224,6 +284,7 @@ class LinearAgent:
         self,
         algorithm: str = "current_map_hessian",
         n_jobs: int = 1,
+        feedback_mode: str = "sample",
     ) -> Tuple:
         """A function to optimize over queries.
 
@@ -254,9 +315,8 @@ class LinearAgent:
                 )
             )
 
-        rollout_features = [x for x in rollout_features]
-        feature_pairs = get_pairs_from_list(rollout_features)
-        candidate_queries = [np.expand_dims(a - b, axis=0) for a, b in feature_pairs]
+        rollout_features = [np.expand_dims(x, axis=0) for x in rollout_features]
+        candidate_queries = get_pairs_from_list(rollout_features)
 
         if algorithm == "bounded_hessian":
             query_best, utility, argmax = acquisition_function_bounded_hessian(
@@ -299,8 +359,7 @@ class LinearAgent:
             )
         else:
             raise NotImplementedError()
-        y = self.query_expert(query_best.squeeze().tolist())
-
+        y = self.query_expert(*query_best, False, feedback_mode)
         idxs = get_pairs_from_list(range(len(rollout_features)))
         queried_idx = idxs[argmax]
         if self.use_trajectories:
@@ -309,12 +368,9 @@ class LinearAgent:
         else:
             query_best_1 = rollout_render_states[queried_idx[0]].squeeze()
             query_best_2 = rollout_render_states[queried_idx[1]].squeeze()
-
-        candidate_queries = [x.tobytes() for x in candidate_queries]
         self.counter += 1
         return (
             query_best,
             y,
-            dict(zip(candidate_queries, utility)),
             (query_best_1, query_best_2),
         )

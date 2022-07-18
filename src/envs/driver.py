@@ -6,6 +6,7 @@ Driving environment based on:
 
 import copy
 import os
+from typing import Callable
 
 import cv2
 import matplotlib.pyplot as plt
@@ -193,6 +194,12 @@ class Driver:
             state.extend(car.state)
         return np.array(state)
 
+    def get_feature_relevant_state(self):
+        state = copy.deepcopy(self.state)
+        for car in self.cars:
+            state.extend(car.state[:2])
+        return np.array(state)
+
     def _update_state(self, state, u1, u2):
         x, y, theta, v = state
         dx = v * np.cos(theta)
@@ -209,14 +216,70 @@ class Driver:
             ), "Full state has insufficient size"
         return np.dot(self.reward_w, self.get_reward_features(full_state))
 
-    def get_comparison_from_feature_diff(self, feature_diff):
+    def get_comparison_from_feature_diff(
+        self, feature_diff, feedback_mode: str = "sample"
+    ):
         p = expit(np.dot(feature_diff, self.reward_w)).item()
-        feedback = np.random.choice([1, 0], p=[p, 1 - p])
+        if feedback_mode == "sample":
+            feedback = np.random.choice([1, 0], p=[p, 1 - p])
+        elif feedback_mode == "soft":
+            feedback = p
+        elif feedback_mode == "hard":
+            feedback = 1 if p >= 0.5 else 0
+        else:
+            raise NotImplementedError(
+                f"Feedback mode {feedback_mode} is not implemented"
+            )
         return feedback
 
-    def get_hard_comparison_from_feature_diff(self, feature_diff):
+    def get_comparison_from_features(
+        self, query_1, query_2, trajectory=False, feedback_mode: str = "sample"
+    ):
+        if trajectory:
+            feature_1 = query_1.sum(axis=1)
+            feature_2 = query_2.sum(axis=1)
+        else:
+            feature_1 = query_1
+            feature_2 = query_2
+        feature_diff = feature_1 - feature_2
         p = expit(np.dot(feature_diff, self.reward_w)).item()
-        feedback = 1 if p >= 0.5 else 0
+        if feedback_mode == "sample":
+            feedback = np.random.choice([1, 0], p=[p, 1 - p])
+        elif feedback_mode == "soft":
+            feedback = p
+        elif feedback_mode == "hard":
+            feedback = 1 if p >= 0.5 else 0
+        else:
+            raise NotImplementedError(
+                f"Feedback mode {feedback_mode} is not implemented"
+            )
+        return feedback
+
+    def get_comparison_from_full_states(
+        self, query_1, query_2, trajectory=False, feedback_mode: str = "sample"
+    ):
+        if trajectory:
+            feature_1 = np.apply_along_axis(self.get_reward_features, 0, query_1).sum(
+                axis=1
+            )
+            feature_2 = np.apply_along_axis(self.get_reward_features, 0, query_2).sum(
+                axis=1
+            )
+        else:
+            feature_1 = self.get_reward_features(query_1)
+            feature_2 = self.get_reward_features(query_2)
+        feature_diff = feature_1 - feature_2
+        p = expit(np.dot(feature_diff, self.reward_w)).item()
+        if feedback_mode == "sample":
+            feedback = np.random.choice([1, 0], p=[p, 1 - p])
+        elif feedback_mode == "soft":
+            feedback = p
+        elif feedback_mode == "hard":
+            feedback = 1 if p >= 0.5 else 0
+        else:
+            raise NotImplementedError(
+                f"Feedback mode {feedback_mode} is not implemented"
+            )
         return feedback
 
     def step(self, action):
@@ -284,7 +347,7 @@ class Driver:
                 full_state[4 * (i + 1) : 4 * (i + 2)] for i in range(len(self.cars))
             ]
             for car_state in car_states:
-                car_x, car_y, car_theta, car_v = car_states
+                car_x, car_y, car_theta, car_v = car_state
                 distance_to_other_car += np.exp(
                     -b * (10 * (x - car_x) ** 2 + (y - car_y) ** 2) + b * a
                 )
@@ -331,6 +394,24 @@ class Driver:
             r_features += self.get_reward_features()
         return r_features
 
+    def _get_representation_from_flat_policy(
+        self, policy, representation_function: Callable
+    ):
+        a_dim = self.action_d
+        n_policy_steps = len(policy) // a_dim
+        n_repeat = self.episode_length // n_policy_steps
+
+        self.reset()
+        representations = []
+        for i in range(self.episode_length):
+            if i % n_repeat == 0:
+                action_i = a_dim * (i // n_repeat)
+                action = (policy[action_i], policy[action_i + 1])
+            s, _, done, _ = self.step(action)
+            assert (i < self.episode_length - 1) or done
+            representations.append(representation_function())
+        return np.vstack(representations)
+
     def get_render_state(self):
         render_state = copy.deepcopy(self.state)
         for car in self.cars:
@@ -355,7 +436,56 @@ class Driver:
         opt_val = np.inf
         bounds = list(zip(a_low, a_high)) * n_policy_steps
         for i in range(restarts):
-            # print(i, end=" ", flush=True)
+            x0 = np.random.uniform(
+                low=a_low * n_policy_steps,
+                high=a_high * n_policy_steps,
+                size=(n_policy_steps * a_dim,),
+            )
+            temp_res = opt.fmin_l_bfgs_b(func, x0=x0, bounds=bounds, approx_grad=True)
+            if temp_res[1] < opt_val:
+                optimal_policy = temp_res[0]
+                opt_val = temp_res[1]
+        policy_repeat = []
+        for i in range(n_policy_steps):
+            policy_repeat.extend([optimal_policy[2 * i : 2 * i + 2]] * n_action_repeat)
+        return np.array(policy_repeat)
+
+    def get_optimal_policy_from_reward_function(
+        self,
+        reward_function: Callable,
+        representation_function: Callable,
+        restarts=30,
+        n_action_repeat=10,
+    ):
+        """_summary_
+
+        Args:
+            reward_function (Callable): _description_
+            representation_function (Callable): _description_
+            restarts (int, optional): _description_. Defaults to 30.
+            n_action_repeat (int, optional): _description_. Defaults to 10.
+
+        Returns:
+            _type_: _description_
+        """
+        a_dim = self.action_d
+        eps = 1e-5
+        n_policy_steps = self.episode_length // n_action_repeat
+        a_low = list(self.action_min + eps)
+        a_high = list(self.action_max - eps)
+
+        def func(policy):
+            representations = self._get_representation_from_flat_policy(
+                policy, representation_function
+            )
+            rewards = 0
+            for representation in representations:
+                rewards += reward_function(representation.tobytes())
+            return -rewards
+
+        opt_val = np.inf
+        bounds = list(zip(a_low, a_high)) * n_policy_steps
+        for i in range(restarts):
             x0 = np.random.uniform(
                 low=a_low * n_policy_steps,
                 high=a_high * n_policy_steps,
@@ -470,6 +600,16 @@ class Driver:
             self.viewer = None
 
     def plot_query_states_pair(self, query_state_1, query_state_2, label):
+        """Assumes that the query state is the full state of the agent plus the
+           position of each other agent.
+        Args:
+            query_state_1 (_type_): _description_
+            query_state_2 (_type_): _description_
+            label (_type_): _description_
+
+        Returns:
+            _type_: _description_
+        """
         fig, axs = plt.subplots(2, figsize=(7, 14))
 
         if label == 1:
@@ -746,7 +886,10 @@ def get_reward_weights(goal, penalty_lambda):
 
 
 def get_driver(
-    cars_trajectory, goal, penalty_lambda=0, reward_weights=None,
+    cars_trajectory,
+    goal,
+    penalty_lambda=0,
+    reward_weights=None,
 ):
     cars = get_cars(cars_trajectory)
     if reward_weights is None:
@@ -793,6 +936,7 @@ def get_driver_target_location():
 
 def get_driver_target_location_only_reward():
     return get_driver("changing_lane", "target_location", penalty_lambda=0)
+
 
 if __name__ == "__main__":
     import time

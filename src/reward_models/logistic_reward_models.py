@@ -1,17 +1,21 @@
 import copy
 from abc import ABC, abstractmethod
-from typing import List, Tuple, Union
+from typing import Callable, List, Tuple, Union
 
 import cvxpy as cp
 import numpy as np
 from scipy.integrate import quadrature
+from scipy.linalg import block_diag, cholesky
+from scipy.sparse import csc_matrix
 from scipy.special import expit
 
 from src.constraints.constraints import Constraint
 from src.reward_models.approximate_posteriors import (
     ApproximatePosterior,
+    GPLaplaceApproximation,
     LaplaceApproximation,
 )
+from src.reward_models.kernels import Kernel, LinearKernel, RBFKernel
 from src.reward_models.samplers import MALA
 from src.utils import bernoulli_entropy, matrix_inverse, multivariate_normal_sample
 
@@ -30,20 +34,20 @@ class LogisticRewardModel(ABC):
         pass
 
     @abstractmethod
-    def get_likelihood(self):
+    def likelihood(self):
         pass
 
     @abstractmethod
     def sample_current_approximate_distribution(self):
         pass
 
-    @abstractmethod
-    def get_approximate_predictive_distribution(self):
-        pass
+    # @abstractmethod
+    # def get_approximate_predictive_distribution(self):
+    #     pass
 
-    @abstractmethod
-    def neglog_posterior_bounded_hessian(self):
-        pass
+    # @abstractmethod
+    # def neglog_posterior_bounded_hessian(self):
+    #     pass
 
 
 class LinearLogisticRewardModel(LogisticRewardModel):
@@ -99,11 +103,10 @@ class LinearLogisticRewardModel(LogisticRewardModel):
 
         if approximation == "laplace":
             self.approximate_posterior = LaplaceApproximation(
-                dim=dim,
                 prior_covariance=self.prior_covariance,
                 prior_mean=self.prior_mean,
                 neglog_posterior=self.neglog_posterior,
-                hessian=self.neglog_posterior_hessian,
+                neglog_posterior_hessian=self.neglog_posterior_hessian,
             )
         else:
             raise NotImplementedError(
@@ -115,6 +118,23 @@ class LinearLogisticRewardModel(LogisticRewardModel):
                 posterior=self.posterior,
                 neglog_posterior_gradient=self.neglog_posterior_gradient,
             )
+
+    def neglog_likelihood(
+        self, theta: np.ndarray, X: np.ndarray = None, y: np.ndarray = None
+    ):
+        if theta.ndim == 1:
+            theta = np.expand_dims(theta, axis=-1)
+        if X is None and y is None:
+            if len(self.X) > 0:
+                X = np.concatenate(self.X, axis=0)
+                y = np.array(self.y)
+            else:
+                assert len(self.y) == 0, "No covariates by labels exist in memory"
+        eps = 1e-10
+        y_hat = expit(X @ theta).squeeze()
+        return (
+            -np.sum(y * np.log(y_hat + eps) + (1 - y) * np.log(1 - y_hat + eps))
+        ).item()
 
     def neglog_posterior(
         self, theta: np.ndarray, y: np.ndarray = None, X: np.ndarray = None
@@ -180,7 +200,7 @@ class LinearLogisticRewardModel(LogisticRewardModel):
     ) -> float:
         return np.exp(-self.neglog_posterior(theta=theta, y=y, X=X))
 
-    def get_likelihood(self, x: np.ndarray, y: int, theta: np.ndarray) -> float:
+    def likelihood(self, x: np.ndarray, y: int, theta: np.ndarray) -> float:
         """Returns the likelihood of observing (x,y) under the given theta.
 
         Args:
@@ -194,6 +214,13 @@ class LinearLogisticRewardModel(LogisticRewardModel):
         y_hat = expit(x @ theta).item()
         likelihood = y_hat if y == 1 else 1 - y_hat
         return likelihood
+
+    def predict_label(self, theta: np.ndarray, X: np.ndarray, threshold: float = 0.5):
+        if theta.ndim == 1:
+            theta = np.expand_dims(theta, axis=-1)
+        y_hat = expit(X @ theta).squeeze()
+        y_hat = (y_hat >= threshold).astype(int)
+        return y_hat
 
     def increment_neglog_posterior(
         self,
@@ -220,17 +247,13 @@ class LinearLogisticRewardModel(LogisticRewardModel):
         y = np.array(_y)
         if theta.shape == (self.dim,):
             theta = np.expand_dims(theta, axis=-1)
-        eps = 1e-10
-        y_hat = expit(X @ theta).squeeze()
         neg_logprior = (
             0.5
             * (theta - self.prior_mean).T
             @ self.prior_precision
             @ (theta - self.prior_mean)
         ).item()
-        neg_loglikelihood = (
-            -np.sum(y * np.log(y_hat + eps) + (1 - y) * np.log(1 - y_hat + eps))
-        ).item()
+        neg_loglikelihood = self.neglog_likelihood(theta=theta, X=X, y=y)
         return neg_logprior + neg_loglikelihood
 
     def neglog_posterior_hessian(
@@ -389,7 +412,7 @@ class LinearLogisticRewardModel(LogisticRewardModel):
             p_1 = 0
             for i in range(samples.shape[0]):
                 sample = samples[i, :]
-                p_1 += self.get_likelihood(x=x, y=1, theta=sample)
+                p_1 += self.likelihood(x=x, y=1, theta=sample)
             p_1 = p_1 / n_samples
             p_0 = 1 - p_1
         else:
@@ -551,3 +574,271 @@ class LinearLogisticRewardModel(LogisticRewardModel):
         X = np.concatenate(X)
         y = np.array(_y)
         return self.approximate_posterior.simulate_update(X, y)
+
+    def get_curret_neglog_likelihood(self):
+        theta = self.get_parameters_estimate()
+        return self.neglog_likelihood(theta=theta)
+
+
+class GPLogisticRewardModel(LogisticRewardModel):
+    def __init__(
+        self,
+        dim: int,
+        kernel: Kernel,
+        reward_min: float = -1,
+        reward_max: float = 1,
+        prior_mean: Callable = None,
+        approximation: str = "laplace",
+        trajectory: bool = False,
+    ):
+        """_summary_
+
+        Args:
+            dim (int): Dimensionality of the covariates.
+            kernel (Kernel): A the similarity kernel.
+            reward_min (float): The minimum reward possible.
+            reward_max (float): The maximum reward possible.
+            prior_mean (np.ndarray, optional): The prior mean for the parameter vector. Defaults to None.
+            approximation (str, optional): The approximation algorithm. Defaults to "laplace".
+
+        Raises:
+            NotImplementedError: If approximate posterior is not implemented.
+        """
+
+        self.dim = dim
+        self.kernel = kernel
+        if prior_mean is None:
+            self.prior_mean = lambda x: np.expand_dims(
+                np.array(x.shape[0] * [0]), axis=-1
+            )
+        self.trajectory = trajectory
+
+        if approximation == "laplace":
+            self.approximate_posterior = GPLaplaceApproximation(
+                kernel=self.kernel,
+                prior_mean=self.prior_mean,
+                neglog_posterior=self.neglog_posterior,
+                neglog_posterior_hessian=self.neglog_posterior_hessian,
+                neglog_posterior_gradient=self.neglog_posterior_gradient,
+            )
+        else:
+            raise NotImplementedError(
+                f"Approximation method {approximation} not implemented"
+            )
+        self.X = []
+        self.y = []
+        self.K_inv = None
+        self.cov_map = None
+
+    def likelihood(self, f_x: np.ndarray, y: np.ndarray):
+        """Likelihood function. Assumes an explicit ordering of f_x, that each 2 consecutive rows correspond to the same query.
+
+        Args:
+            f_x (np.ndarray): _description_
+            y (np.ndarray): _description_
+
+        Returns:
+            _type_: _description_
+        """
+        f_x_reduced = np.array([f_x[i] - f_x[i + 1] for i in range(0, len(f_x), 2)])
+        y_hat = expit(f_x_reduced)
+        return -np.prod(y_hat**y + (1 - y_hat) ** (1 - y))
+
+    def neglog_likelihood(self, f_x: np.ndarray, y: np.ndarray):
+        """Likelihood function. Assumes an explicit ordering of f_x, that each 2 consecutive rows correspond to the same query.
+
+        Args:
+            f_x (np.ndarray): _description_
+            y (np.ndarray): _description_
+
+        Returns:
+            _type_: _description_
+        """
+        f_x_reduced = np.array(
+            [f_x[i] - f_x[i + 1] for i in range(0, len(f_x), 2)]
+        ).squeeze()
+        eps = 1e-10
+        y_hat = expit(f_x_reduced)
+        return -np.sum(y * np.log(y_hat + eps) + (1 - y) * np.log(1 - y_hat + eps))
+
+    def neglog_posterior(
+        self,
+        f_x: np.ndarray,
+        X: np.ndarray = None,
+        y: np.ndarray = None,
+        K_inv: np.ndarray = None,
+    ):
+        """_summary_
+
+        Args:
+            f_x (np.ndarray): _description_
+            y (np.ndarray, optional): _description_. Defaults to None.
+            X (np.ndarray, optional): _description_. Defaults to None.
+            K_inv (np.ndarray, optional): Inverse Gram Matrix. Using this argument significantly
+                increases update speed. Defaults to None.
+
+        Raises:
+            ValueError: _description_
+            ValueError: _description_
+
+        Returns:
+            _type_: _description_
+        """
+        if y is None and X is None:
+            if len(self.X) > 0:
+                if self.trajectory:
+                    X = np.vstack(self.X)
+                else:
+                    X = np.stack(self.X, axis=0)
+                y = np.array(self.y)
+            else:
+                raise ValueError(
+                    "The memory is empty, must pass explicit covariates and labels."
+                )
+        elif (y is None and X is not None) or (X is None and y is not None):
+            raise ValueError("Specificy X and y, or neither of them.")
+        if f_x.ndim == 1:
+            f_x = np.expand_dims(f_x, axis=-1)
+        prior_mean = self.prior_mean(X)
+
+        if K_inv is None:
+            K = self.kernel.eval(X, X)
+            K_inv = matrix_inverse(K)
+        neglog_prior = (0.5 * (f_x - prior_mean).T @ K_inv @ (f_x - prior_mean)).item()
+        neglog_likelihood = self.neglog_likelihood(f_x, y)
+        return neglog_prior + neglog_likelihood
+
+    def neglog_posterior_gradient(
+        self,
+        f_x: np.ndarray,
+        X: np.ndarray,
+        y: np.ndarray,
+        K_inv: np.ndarray,
+    ) -> np.ndarray:
+        if f_x.ndim == 1:
+            f_x = np.expand_dims(f_x, axis=-1)
+        prior_mean = self.prior_mean(X)
+        grad_prior = K_inv @ (f_x - prior_mean)
+        f_x_reduced = np.array(
+            [f_x[i] - f_x[i + 1] for i in range(0, len(f_x), 2)]
+        ).squeeze()
+        y_hat = expit(f_x_reduced)
+        grad_likelihood = y - y_hat
+        grad_likelihood = np.repeat(grad_likelihood, repeats=2, axis=0).squeeze()
+        grad_likelihood[::2] *= -1
+        grad = grad_likelihood.squeeze() + grad_prior.squeeze()
+        return grad
+
+    def neglog_posterior_hessian(
+        self,
+        f_x: np.ndarray,
+        X: np.ndarray = None,
+        y: np.ndarray = None,
+        K_inv: np.ndarray = None,
+    ):
+        if X is None:
+            if len(self.X) > 0:
+                X = self.get_covariates_from_memory()
+            else:
+                raise ValueError("The memory is empty, must pass explicit covariates.")
+        if K_inv is None:
+            K = self.kernel.eval(X, X)
+            K_inv = matrix_inverse(K)
+        W = self.neglog_likelihood_hessian(f_x)
+        return W + K_inv
+
+    def neglog_likelihood_hessian(self, f_x: np.ndarray):
+        f_x_reduced = np.array([f_x[i] - f_x[i + 1] for i in range(0, len(f_x), 2)])
+        W = []
+        for f_delta in f_x_reduced:
+            variance = (expit(f_delta) * (1 - expit(f_delta))).item()
+            W.append(np.array([[variance, -variance], [-variance, variance]]))
+        W = block_diag(*W)
+        return W
+
+    def update(self, x_1: np.ndarray, x_2, y: np.ndarray) -> None:
+
+        """Updates the reward model after a new observation (x,y)
+
+        Args:
+            x (np.ndarray): The observed covariate.
+            y (np.ndarray): The observed response.
+        """
+        if x_1.ndim == 1:
+            x_1 = np.expand_dims(x_1, axis=0)
+        if x_2.ndim == 1:
+            x_2 = np.expand_dims(x_2, axis=0)
+        self.X.append(x_1)
+        self.X.append(x_2)
+        self.y.append(y)
+        self.update_gram_matrix_inverse()
+        self.update_map_covariance(self.update_approximate_posterior())
+
+    def update_approximate_posterior(self) -> np.ndarray:
+        """updates the approximate posterior
+
+        Args:
+            X (np.ndarray): The input covariates.
+            y (np.ndarray): The labels.
+        """
+        X = self.get_covariates_from_memory()
+        return self.approximate_posterior.update(X, np.array(self.y), self.K_inv)
+
+    def update_gram_matrix_inverse(self):
+        if self.trajectory:
+            X = np.stack(self.X, axis=0)
+        else:
+            X = np.vstack(self.X)
+        self.K_inv = matrix_inverse(self.kernel.eval(X, X))
+
+    def update_map_covariance(self, f_x: np.ndarray):
+        self.cov_map = matrix_inverse(self.neglog_posterior_hessian(f_x))
+
+    def sample_current_approximate_distribution(self, x, n_samples: int = 1):
+        if x.ndim == 1:
+            x = np.expand_dims(x, axis=0)
+        X = self.get_covariates_from_memory()
+        samples = self.approximate_posterior.sample(x, X, n_samples, self.K_inv)
+        if x.shape[0] == 1:
+            samples = samples.item()
+        return samples
+
+    def get_mean(self, x):
+        X = self.get_covariates_from_memory()
+        if x.ndim == 1:
+            x = np.expand_dims(x, axis=0)
+        mean = self.approximate_posterior.get_mean(x, X, self.K_inv)
+        if x.shape[0] == 1:
+            mean = mean.item()
+        return mean
+
+    def get_covariance(self, x):
+        X = self.get_covariates_from_memory()
+        if x.ndim == 1:
+            x = np.expand_dims(x, axis=0)
+        cov = self.approximate_posterior.get_covariance(x, X, self.K_inv, self.cov_map)
+        return cov
+
+    def get_covariates_from_memory(self):
+        if len(self.X) == 0:
+            X = None
+        else:
+            if self.trajectory:
+                X = np.stack(self.X, axis=0)
+            else:
+                X = np.vstack(self.X)
+        return X
+
+    def predict_label(self, f_x, threshold: float = 0.5):
+        f_x_reduced = np.array([f_x[i] - f_x[i + 1] for i in range(0, len(f_x), 2)])
+        y_hat = expit(f_x_reduced)
+        y_hat = (y_hat >= threshold).astype(int)
+        return y_hat.squeeze()
+
+    def get_curret_neglog_likelihood(self):
+        f_hat = self.approximate_posterior.get_current_mode()
+        if f_hat is not None:
+            y = np.array(self.y)
+            return self.neglog_likelihood(f_hat, y)
+        else:
+            return None

@@ -1,17 +1,15 @@
+import warnings
 from abc import ABC, abstractmethod
 from typing import Callable, Tuple
 
 import numpy as np
 import scipy.optimize
+from scipy.sparse import csc_matrix
 
-from src.utils import matrix_inverse, multivariate_normal_sample
+from src.utils import matrix_inverse, multivariate_normal_sample, timeit
 
 
 class ApproximatePosterior(ABC):
-    @abstractmethod
-    def get_covariance(self):
-        pass
-
     @abstractmethod
     def update(self):
         pass
@@ -24,19 +22,21 @@ class ApproximatePosterior(ABC):
     def get_mean(self):
         pass
 
+    @abstractmethod
+    def get_covariance(self):
+        pass
+
 
 class LaplaceApproximation(ApproximatePosterior):
     def __init__(
         self,
-        dim: int,
         prior_covariance: np.ndarray,
         prior_mean: np.ndarray,
         neglog_posterior: Callable[[np.ndarray, np.ndarray, np.ndarray], np.ndarray],
-        hessian: Callable[[np.ndarray, np.ndarray], np.ndarray],
+        neglog_posterior_hessian: Callable[[np.ndarray, np.ndarray], np.ndarray],
     ):
-        self.dim = dim
         self.neglog_posterior = neglog_posterior
-        self.hessian = hessian
+        self.neglog_posterior_hessian = neglog_posterior_hessian
         self._mean = prior_mean
         self._hessian_inv = prior_covariance
 
@@ -66,15 +66,109 @@ class LaplaceApproximation(ApproximatePosterior):
         self, X: np.ndarray, y: np.ndarray
     ) -> Tuple[np.ndarray, np.ndarray]:
         if self._mean is None:
-            theta_0 = np.zeros(self.dim)
+            theta_0 = np.zeros(X.shape[0])
         else:
             theta_0 = self._mean
         solution = scipy.optimize.minimize(
             self.neglog_posterior, theta_0, args=(y, X), method="L-BFGS-B", tol=1e-10
         )
         mean = solution.x
-        if self.hessian is not None:
-            hess_inv = matrix_inverse(self.hessian(mean, X))
+        if self.neglog_posterior_hessian is not None:
+            hess_inv = matrix_inverse(self.neglog_posterior_hessian(mean, X))
         else:
             hess_inv = solution.hess_inv.todense()
         return np.expand_dims(mean, axis=-1), hess_inv
+
+
+class GPLaplaceApproximation(ApproximatePosterior):
+    def __init__(
+        self,
+        kernel: Callable,
+        prior_mean: Callable,
+        neglog_posterior: Callable[[np.ndarray, np.ndarray, np.ndarray], np.ndarray],
+        neglog_posterior_hessian: Callable[[np.ndarray, np.ndarray], np.ndarray],
+        neglog_posterior_gradient: Callable[
+            [np.ndarray, np.ndarray, np.ndarray], np.ndarray
+        ],
+    ):
+        self.kernel = kernel
+        self.prior_mean = prior_mean
+        self.neglog_posterior = neglog_posterior
+        self.neglog_posterior_gradient = neglog_posterior_gradient
+        self.neglog_posterior_hessian = neglog_posterior_hessian
+        self.f_hat = None
+
+    def get_mean(self, x, X, K_inv: np.ndarray = None):
+        if self.f_hat is not None and X is not None:
+            if K_inv is None:
+                K = self.kernel.eval(X, X)
+                K_inv = matrix_inverse(K)
+            mean = self.kernel.eval(x, X) @ K_inv @ (self.f_hat - self.prior_mean(X))
+        else:
+            mean = self.prior_mean(x)
+        return mean
+
+    def get_current_mode(self):
+        return self.f_hat
+
+    def get_covariance(
+        self,
+        x: np.ndarray,
+        X: np.ndarray,
+        K_inv: np.ndarray = None,
+        cov_map: np.ndarray = None,
+    ):
+        if self.f_hat is not None and X is not None:
+            k_x_X = self.kernel.eval(x, X)
+            if K_inv is None:
+                K = self.kernel.eval(X, X)
+                K_inv = matrix_inverse(K)
+            if cov_map is None:
+                cov_map = matrix_inverse(self.neglog_posterior_hessian(self.f_hat, X))
+
+            k_x_x = self.kernel.eval(x, x)
+            cov_map = matrix_inverse(self.neglog_posterior_hessian(self.f_hat, X))
+            cov = (
+                k_x_x
+                - k_x_X @ K_inv @ k_x_X.T
+                + k_x_X @ K_inv @ cov_map @ K_inv @ k_x_X.T
+            )
+        else:
+            cov = self.kernel.eval(x, x)
+        return cov
+
+    def update(
+        self,
+        X: np.ndarray,
+        y: np.ndarray,
+        K_inv: np.ndarray = None,
+        store: bool = True,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+
+        if K_inv is None:
+            K = self.kernel.eval(X, X)
+            K_inv = matrix_inverse(K)
+        f_x_0 = np.zeros(X.shape[0])
+        solution = scipy.optimize.minimize(
+            self.neglog_posterior,
+            f_x_0,
+            args=(X, y, K_inv),
+            method="trust-ncg",
+            jac=self.neglog_posterior_gradient,
+            hess=self.neglog_posterior_hessian,
+        ).x
+        solution = np.expand_dims(solution, axis=-1)
+        if store:
+            self.f_hat = solution
+        return solution
+
+    def sample(
+        self,
+        x: np.ndarray,
+        X: np.ndarray,
+        n_samples: int = 1,
+        K_inv: np.ndarray = None,
+    ) -> np.ndarray:
+        mu = self.get_mean(x, X, K_inv)
+        cov = self.get_covariance(x, X, K_inv)
+        return multivariate_normal_sample(mu=mu, cov=cov, n_samples=n_samples).squeeze()
