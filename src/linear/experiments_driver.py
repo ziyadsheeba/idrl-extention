@@ -32,7 +32,7 @@ from src.linear.driver_config import (
     CANDIDATE_POLICY_UPDATE_RATE,
     DIMENSIONALITY,
     IDRL,
-    N_PROCESSES,
+    N_JOBS,
     NUM_CANDIDATE_POLICIES,
     NUM_QUERY,
     PRIOR_VARIANCE_SCALE,
@@ -61,6 +61,7 @@ def simultate(
     num_query: int,
     idrl: bool,
     trajectory_query: bool,
+    n_jobs: int,
     testset_path: Path = None,
 ):
     # true reward parameter
@@ -92,6 +93,7 @@ def simultate(
         feature_space_dim=dimensionality,
         use_trajectories=trajectory_query,
         num_query=num_query,
+        n_jobs=n_jobs,
         testset_path=testset_path,
     )
 
@@ -128,7 +130,7 @@ def simultate(
             steps.set_description(f"Policy Regret {policy_regret[step]}")
 
             query_best, label, queried_states = agent.optimize_query(
-                algorithm=algorithm, n_jobs=8
+                algorithm=algorithm
             )
             agent.update_belief(*query_best, label)
             if step % query_logging_rate == 0:
@@ -190,6 +192,7 @@ def execute(seed):
             idrl=IDRL,
             trajectory_query=TRAJECTORY_QUERY,
             testset_path=TESTSET_PATH,
+            n_jobs=N_JOBS,
         )
 
 
