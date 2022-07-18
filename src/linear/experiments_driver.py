@@ -158,6 +158,8 @@ def simultate(
                 plt.close("all")
         mlflow.log_dict(policy_regret, "policy_regret.json")
         mlflow.log_dict(cosine_distance, "cosine_distance.json")
+        mlflow.log_dict(neglog_likelihood, "neglog_likelihood.json")
+        mlflow.log_dict(accuracy, "accuracy.json")
 
 
 def execute(seed):
