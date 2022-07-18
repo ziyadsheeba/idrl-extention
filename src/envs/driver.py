@@ -216,12 +216,25 @@ class Driver:
             ), "Full state has insufficient size"
         return np.dot(self.reward_w, self.get_reward_features(full_state))
 
-    def get_comparison_from_feature_diff(self, feature_diff):
+    def get_comparison_from_feature_diff(
+        self, feature_diff, feedback_mode: str = "sample"
+    ):
         p = expit(np.dot(feature_diff, self.reward_w)).item()
-        feedback = np.random.choice([1, 0], p=[p, 1 - p])
+        if feedback_mode == "sample":
+            feedback = np.random.choice([1, 0], p=[p, 1 - p])
+        elif feedback_mode == "soft":
+            feedback = p
+        elif feedback_mode == "hard":
+            feedback = 1 if p >= 0.5 else 0
+        else:
+            raise NotImplementedError(
+                f"Feedback mode {feedback_mode} is not implemented"
+            )
         return feedback
 
-    def get_comparison_from_features(self, query_1, query_2, trajectory=False):
+    def get_comparison_from_features(
+        self, query_1, query_2, trajectory=False, feedback_mode: str = "sample"
+    ):
         if trajectory:
             feature_1 = query_1.sum(axis=1)
             feature_2 = query_2.sum(axis=1)
@@ -230,10 +243,21 @@ class Driver:
             feature_2 = query_2
         feature_diff = feature_1 - feature_2
         p = expit(np.dot(feature_diff, self.reward_w)).item()
-        feedback = np.random.choice([1, 0], p=[p, 1 - p])
+        if feedback_mode == "sample":
+            feedback = np.random.choice([1, 0], p=[p, 1 - p])
+        elif feedback_mode == "soft":
+            feedback = p
+        elif feedback_mode == "hard":
+            feedback = 1 if p >= 0.5 else 0
+        else:
+            raise NotImplementedError(
+                f"Feedback mode {feedback_mode} is not implemented"
+            )
         return feedback
 
-    def get_comparison_from_full_states(self, query_1, query_2, trajectory=False):
+    def get_comparison_from_full_states(
+        self, query_1, query_2, trajectory=False, feedback_mode: str = "sample"
+    ):
         if trajectory:
             feature_1 = np.apply_along_axis(self.get_reward_features, 0, query_1).sum(
                 axis=1
@@ -246,20 +270,16 @@ class Driver:
             feature_2 = self.get_reward_features(query_2)
         feature_diff = feature_1 - feature_2
         p = expit(np.dot(feature_diff, self.reward_w)).item()
-        feedback = np.random.choice([1, 0], p=[p, 1 - p])
-        return feedback
-
-    def get_hard_comparison_from_full_states(self, state_1, state_2) -> int:
-        feature_1 = self.get_reward_features(state_1)
-        feature_2 = self.get_reward_features(state_2)
-        feature_diff = feature_1 - feature_2
-        p = expit(np.dot(feature_diff, self.reward_w)).item()
-        feedback = 1 if p >= 0.5 else 0
-        return feedback
-
-    def get_hard_comparison_from_feature_diff(self, feature_diff):
-        p = expit(np.dot(feature_diff, self.reward_w)).item()
-        feedback = 1 if p >= 0.5 else 0
+        if feedback_mode == "sample":
+            feedback = np.random.choice([1, 0], p=[p, 1 - p])
+        elif feedback_mode == "soft":
+            feedback = p
+        elif feedback_mode == "hard":
+            feedback = 1 if p >= 0.5 else 0
+        else:
+            raise NotImplementedError(
+                f"Feedback mode {feedback_mode} is not implemented"
+            )
         return feedback
 
     def step(self, action):

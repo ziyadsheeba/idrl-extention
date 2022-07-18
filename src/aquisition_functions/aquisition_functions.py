@@ -640,7 +640,7 @@ def acquisition_function_current_map_hessian_gp(
                     _X = x
                     _f = f_x
             hess = reward_model.neglog_posterior_hessian(_f, _X)
-            return np.linalg.det(hess)
+            return np.linalg.slogdet(hess)[1]
 
     else:
         raise NotImplementedError()

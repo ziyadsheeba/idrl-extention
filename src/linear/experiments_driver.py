@@ -5,6 +5,7 @@ import os
 import pickle
 import time
 from multiprocessing import Pool
+from pathlib import Path
 from typing import Callable, List, Tuple
 
 import matplotlib
@@ -38,6 +39,7 @@ from src.linear.driver_config import (
     QUERY_LOGGING_RATE,
     SEEDS,
     SIMULATION_STEPS,
+    TESTSET_PATH,
     THETA_NORM,
     TRAJECTORY_QUERY,
     X_MAX,
@@ -59,6 +61,7 @@ def simultate(
     num_query: int,
     idrl: bool,
     trajectory_query: bool,
+    testset_path: Path = None,
 ):
     # true reward parameter
     env = get_driver_target_velocity()
@@ -89,11 +92,13 @@ def simultate(
         feature_space_dim=dimensionality,
         use_trajectories=trajectory_query,
         num_query=num_query,
+        testset_path=testset_path,
     )
 
     policy_regret = {}
     cosine_distance = {}
     neglog_likelihood = {}
+    accuracy = {}
     with tqdm(range(simulation_steps), unit="step") as steps:
         for step in steps:
             # compute policy_regret and cosine similarity
@@ -113,15 +118,14 @@ def simultate(
                 if np.linalg.norm(theta_hat) > 0
                 else 1
             )
+            neglog_likelihood[step] = agent.get_testset_neglog_likelihood()
+            accuracy[step] = agent.get_testset_accuracy()
+
             mlflow.log_metric("policy_regret", policy_regret[step], step=step)
             mlflow.log_metric("cosine_distance", cosine_distance[step], step=step)
+            mlflow.log_metric("neglog_likelihood", neglog_likelihood[step], step=step)
+            mlflow.log_metric("accuracy", accuracy[step], step=step)
             steps.set_description(f"Policy Regret {policy_regret[step]}")
-
-            if agent.counter > 0:
-                neglog_likelihood[step] = agent.get_current_neglog_likelihood()
-                mlflow.log_metric(
-                    "neglog_likelihood", neglog_likelihood[step], step=step
-                )
 
             query_best, label, queried_states = agent.optimize_query(
                 algorithm=algorithm, n_jobs=8
@@ -185,6 +189,7 @@ def execute(seed):
             num_query=NUM_QUERY,
             idrl=IDRL,
             trajectory_query=TRAJECTORY_QUERY,
+            testset_path=TESTSET_PATH,
         )
 
 
