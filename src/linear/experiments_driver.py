@@ -200,4 +200,7 @@ def execute(seed):
 
 if __name__ == "__main__":
     for seed in SEEDS:
-        execute(seed)
+        try:
+            execute(seed)
+        except:
+            pass
