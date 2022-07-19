@@ -41,6 +41,7 @@ class LinearAgent:
         feature_space_dim: int,
         use_trajectories: bool,
         num_query: int,
+        n_jobs: int = 1,
         testset_path: Path = None,
     ):
         """
@@ -65,11 +66,12 @@ class LinearAgent:
         self.num_query = num_query
         self.precomputed_policy_path = precomputed_policy_path
         self.precomputed_policies = None
-        self.v = None
-        self.counter = 0
+        self.n_jobs = n_jobs
         self.testset_path = testset_path
         self.X_test = None
         self.y_test = None
+        self.v = None
+        self.counter = 0
 
         self.load_precomputed_policies()
         self.load_testset()
@@ -170,20 +172,18 @@ class LinearAgent:
         features = svf.index.tolist()
         svf = [svf[column].to_numpy() for column in svf.columns]
         svf = get_pairs_from_list(svf)
-        svf_diff = [np.abs(a - b) for a, b in svf]  # TO CHECK
+        svf_diff = [np.abs(a - b) for a, b in svf]
         svf_diff_mean = np.mean(svf_diff, axis=0)
         features = np.vstack(list(map(np.frombuffer, features)))
         return np.expand_dims(svf_diff_mean, axis=1), features
 
-    def get_candidate_policies(
-        self, use_thompson_sampling: bool = True, n_jobs: int = 1
-    ):
+    def get_candidate_policies(self, use_thompson_sampling: bool = True):
         if use_thompson_sampling:
             sampled_params = self.sample_parameters(
                 n_samples=self.num_candidate_policies, method="mcmc"
             )
             policies = []
-            pool = Pool(processes=n_jobs)
+            pool = Pool(processes=self.n_jobs)
             for policy in tqdm.tqdm(
                 pool.imap_unordered(self.get_optimal_policy, sampled_params),
                 total=len(sampled_params),
@@ -193,9 +193,9 @@ class LinearAgent:
             raise NotImplementedError()
         return policies
 
-    def get_state_visitation_vector(self, n_jobs: int = 1):
+    def get_state_visitation_vector(self):
         print("Recomputing Candidate Policies ...")
-        policies = self.get_candidate_policies(n_jobs=n_jobs)
+        policies = self.get_candidate_policies()
         svf_diff_mean, features = self.estimate_pairwise_svf_mean(policies)
         v = features.T @ svf_diff_mean
         return v
@@ -283,7 +283,6 @@ class LinearAgent:
     def optimize_query(
         self,
         algorithm: str = "current_map_hessian",
-        n_jobs: int = 1,
         feedback_mode: str = "sample",
     ) -> Tuple:
         """A function to optimize over queries.
@@ -306,7 +305,7 @@ class LinearAgent:
         """
         rollout_features, rollout_render_states = self.get_candidate_queries()
         if self.idrl and self.counter % self.candidate_policy_update_rate == 0:
-            self.v = self.get_state_visitation_vector(n_jobs=n_jobs)
+            self.v = self.get_state_visitation_vector()
 
         if self.use_trajectories:
             rollout_features = (
@@ -320,15 +319,15 @@ class LinearAgent:
 
         if algorithm == "bounded_hessian":
             query_best, utility, argmax = acquisition_function_bounded_hessian(
-                self.reward_model, candidate_queries, n_jobs=n_jobs
+                self.reward_model, candidate_queries, n_jobs=self.n_jobs
             )
         elif algorithm == "map_hessian":
             query_best, utility, argmax = acquisition_function_map_hessian(
-                self.reward_model, candidate_queries, n_jobs=n_jobs
+                self.reward_model, candidate_queries, n_jobs=self.n_jobs
             )
         elif algorithm == "random":
             query_best, utility, argmax = acquisition_function_random(
-                self.reward_model, candidate_queries, n_jobs=n_jobs
+                self.reward_model, candidate_queries, n_jobs=self.n_jobs
             )
         elif algorithm == "bounded_coordinate_hessian":
             (
@@ -336,26 +335,26 @@ class LinearAgent:
                 utility,
                 argmax,
             ) = acquisition_function_bounded_coordinate_hessian(
-                self.reward_model, candidate_queries, v=self.v, n_jobs=n_jobs
+                self.reward_model, candidate_queries, v=self.v, n_jobs=self.n_jobs
             )
         elif algorithm == "optimal_hessian":
             query_best, utility, argmax = acquisition_function_optimal_hessian(
                 self.reward_model,
                 candidate_queries,
                 theta=self.expert.true_parameter,
-                n_jobs=n_jobs,
+                n_jobs=self.n_jobs,
             )
         elif algorithm == "map_confidence":
             query_best, utility, argmax = acquisition_function_map_confidence(
-                self.reward_model, candidate_queries, n_jobs=n_jobs
+                self.reward_model, candidate_queries, n_jobs=self.n_jobs
             )
         elif algorithm == "current_map_hessian":
             query_best, utility, argmax = acquisition_function_current_map_hessian(
-                self.reward_model, candidate_queries, v=self.v, n_jobs=n_jobs
+                self.reward_model, candidate_queries, v=self.v, n_jobs=self.n_jobs
             )
         elif algorithm == "bounded_ball_map":
             query_best, utility, argmax = acquisition_function_bounded_ball_map(
-                self.reward_model, candidate_queries, v=self.v, n_jobs=n_jobs
+                self.reward_model, candidate_queries, v=self.v, n_jobs=self.n_jobs
             )
         else:
             raise NotImplementedError()
