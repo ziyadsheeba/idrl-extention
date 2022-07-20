@@ -19,7 +19,11 @@ from src.reward_models.logistic_reward_models import (
     GPLogisticRewardModel,
     LogisticRewardModel,
 )
-from src.utils import get_pairs_from_list, multivariate_normal_sample
+from src.utils import (
+    bernoulli_log_entropy,
+    get_pairs_from_list,
+    multivariate_normal_sample,
+)
 
 
 class GPAgent:
@@ -90,8 +94,16 @@ class GPAgent:
                 covariates = [
                     np.stack(
                         [
-                            np.frombuffer(a).reshape(query_shape),
-                            np.frombuffer(b).reshape(query_shape),
+                            np.apply_along_axis(
+                                self.get_representation,
+                                0,
+                                np.frombuffer(a).reshape(query_shape),
+                            ),
+                            np.apply_along_axis(
+                                self.get_representation,
+                                0,
+                                np.frombuffer(b).reshape(query_shape),
+                            ),
                         ],
                         axis=0,
                     )
@@ -102,8 +114,12 @@ class GPAgent:
                 covariates = [
                     np.vstack(
                         [
-                            np.frombuffer(a).reshape(query_shape),
-                            np.frombuffer(b).reshape(query_shape),
+                            self.get_representation(
+                                np.frombuffer(a).reshape(query_shape)
+                            ),
+                            self.get_representation(
+                                np.frombuffer(b).reshape(query_shape)
+                            ),
                         ]
                     )
                     for a, b in testset.keys()
@@ -120,9 +136,11 @@ class GPAgent:
     def get_testset_neglog_likelihood(self):
         if self.testset_path is not None:
             f_test = self.predict_reward(self.X_test)
-            return self.reward_model.neglog_likelihood(f_test, self.y_test) / len(
-                self.y_test
-            )
+            log_entropy_test = bernoulli_log_entropy(self.y_test)
+            return (
+                self.reward_model.neglog_likelihood(f_test, self.y_test)
+                - log_entropy_test
+            ) / len(self.y_test)
         else:
             raise ValueError()
 

@@ -16,7 +16,6 @@ from src.reward_models.logistic_reward_models import (
 )
 from src.utils import (
     argmax_over_index_set,
-    bernoulli_entropy,
     matrix_inverse,
     multivariate_normal_sample,
     timeit,

@@ -17,7 +17,7 @@ from src.reward_models.approximate_posteriors import (
 )
 from src.reward_models.kernels import Kernel, LinearKernel, RBFKernel
 from src.reward_models.samplers import MALA
-from src.utils import bernoulli_entropy, matrix_inverse, multivariate_normal_sample
+from src.utils import matrix_inverse, multivariate_normal_sample
 
 
 class LogisticRewardModel(ABC):

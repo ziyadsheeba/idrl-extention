@@ -62,11 +62,13 @@ class RBFKernel(Kernel):
         lengthscale: float = 1e-8,
         obs_var: float = 1,
         use_cache: bool = False,
+        constant: float = 0,
     ):
         self.dim = dim
         self.variance = variance
         self.lengthscale = lengthscale
         self.obs_var = obs_var
+        self.constant = constant
 
     def eval(self, X_1: np.ndarray, X_2: np.ndarray) -> np.ndarray:
         """Kernel evaluation function.
@@ -106,4 +108,4 @@ class RBFKernel(Kernel):
             K = self.variance**2 * np.exp(-0.5 * norm / self.lengthscale**2).sum(
                 axis=-1
             )
-        return K
+        return K + self.constant

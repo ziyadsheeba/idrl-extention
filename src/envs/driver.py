@@ -188,11 +188,14 @@ class Driver:
     def _get_car_states(self):
         return [np.array(car.state) for car in self.cars]
 
-    def get_full_state(self):
-        state = copy.deepcopy(self.state)
-        for car in self.cars:
-            state.extend(car.state)
-        return np.array(state)
+    def get_full_state(self, full_state: np.array = None):
+        if full_state is None:
+            state = copy.deepcopy(self.state)
+            for car in self.cars:
+                state.extend(car.state)
+            return np.array(state)
+        else:
+            return full_state
 
     def get_feature_relevant_state(self):
         state = copy.deepcopy(self.state)

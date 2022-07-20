@@ -21,7 +21,11 @@ from src.reward_models.logistic_reward_models import (
     LinearLogisticRewardModel,
     LogisticRewardModel,
 )
-from src.utils import get_pairs_from_list, multivariate_normal_sample
+from src.utils import (
+    bernoulli_log_entropy,
+    get_pairs_from_list,
+    multivariate_normal_sample,
+)
 
 
 class LinearAgent:
@@ -121,8 +125,10 @@ class LinearAgent:
     def get_testset_neglog_likelihood(self):
         if self.testset_path is not None:
             theta = self.get_parameters_estimate()
-            return self.reward_model.neglog_likelihood(
-                theta, self.X_test, self.y_test
+            log_entropy_test = bernoulli_log_entropy(self.y_test)
+            return (
+                self.reward_model.neglog_likelihood(theta, self.X_test, self.y_test)
+                - log_entropy_test
             ) / len(self.y_test)
         else:
             raise ValueError()

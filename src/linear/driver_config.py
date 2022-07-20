@@ -20,16 +20,16 @@ X_MAX = [
     0.7,  # x distance
     0.2,  # y distance
 ]
-PRIOR_VARIANCE_SCALE = 0.01
-ALGORITHM = "current_map_hessian"
+PRIOR_VARIANCE_SCALE = 1
+ALGORITHM = "random"
 SIMULATION_STEPS = 200
 NUM_CANDIDATE_POLICIES = 8
-NUM_QUERY = 400  # number of states, the number of queries will be n*(n-1)/4
+NUM_QUERY = 1000  # number of states, the number of queries will be n*(n-1)/4
 TRAJECTORY_QUERY = True  # whether to use trajectory queries or not
 CANDIDATE_POLICY_UPDATE_RATE = 1
 QUERY_LOGGING_RATE = 1
-IDRL = True
-SEEDS = [0, 1, 2, 3, 4, 5, 6, 7]
+IDRL = False
+SEEDS = [3]  # [0, 1, 2, 3, 4, 5, 6, 7]
 N_JOBS = 8
 if TRAJECTORY_QUERY:
     TESTSET_PATH = DRIVER_TRAJECTORIES_TESTSET_PATH

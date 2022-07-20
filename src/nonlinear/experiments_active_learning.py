@@ -231,6 +231,7 @@ def simultate(
             markersize=5,
             markerfacecolor="green" if label == 0 else "red",
         )
+        plt.ylim(-(x_min**2), x_max**2)
 
         mlflow.log_figure(plt.gcf(), f"fig_{step}.png")
         plt.cla()

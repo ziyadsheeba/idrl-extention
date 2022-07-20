@@ -152,11 +152,9 @@ def matrix_inverse(A: np.ndarray) -> np.ndarray:
     return A_inv
 
 
-def bernoulli_entropy(bias: float):
+def bernoulli_log_entropy(y: np.ndarray):
     eps = 1e-10
-    if bias > 1 or bias < 0:
-        raise ValueError("The bias value must be in the range (0, 1)")
-    return -bias * np.log(bias + eps) - (1 - bias) * np.log(1 - bias + eps)
+    return -(y * np.log(y + eps) + (1 - y) * np.log(1 - y + eps)).sum()
 
 
 def subsample_sequence(old_len, new_len):
