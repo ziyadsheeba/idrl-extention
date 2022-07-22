@@ -21,18 +21,21 @@ wrapt = "*"
 pygame = "*"
 tk-tools = "*"
 notebook = "*"
-opencv-python-headless = "*"
 cvxpy = "*"
 pandas = "*"
 dvc = "*"
 mlflow = "*"
 loky = "*"
 streamlit = "*"
-opencv-python = "==4.3.0.36"
-idrl-extention = {editable = true, path = "."}
 memory-profiler = "*"
+opencv-python = "==4.5.5.64"
+opencv-contrib-python = "==4.5.5.62"
 
 [dev-packages]
 
 [requires]
 python_version = "3.8"
+
+[packages.idrl-extention]
+editable = true
+path = "."
