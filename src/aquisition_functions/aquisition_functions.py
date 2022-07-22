@@ -561,7 +561,7 @@ def acquisition_function_predicted_variance(
                 x = np.stack([x1, x2], axis=0)
             else:
                 x = np.vstack([x1, x2])
-            cov = reward_model.get_covariance(x)
+            cov = reward_model.get_predictive_covariance(x)
             return np.linalg.det(cov)
 
     else:
@@ -610,6 +610,26 @@ def acquisition_function_current_map_hessian_gp(
         Union[np.ndarray, List[np.ndarray, np.ndarray], List[np.ndarray, np.ndarray, int]]
     """
     global _get_val
+    # if v is None:
+
+    #     def _get_val(x1, x2):
+    #         if x1.ndim == 1:
+    #             x1 = np.expand_dims(x1, axis=0)
+    #         if x2.ndim == 1:
+    #             x2 = np.expand_dims(x2, axis=0)
+    #         if reward_model.trajectory:
+    #             x = np.stack([x1, x2], axis=0)
+    #         else:
+    #             x = np.vstack([x1, x2])
+    #         f_x = reward_model.get_mean(x)
+    #         f_x_diff = f_x[0] - f_x[1]
+    #         var_bern = expit(f_x_diff) * (1 - expit(f_x_diff))
+    #         cov = reward_model.get_covariance(x)
+    #         # reg_hess = matrix_inverse(reward_model.get_regression_covariance(x))
+    #         # W = reward_model.neglog_likelihood_hessian(f_x)
+    #         # return -np.linalg.slogdet(reg_hess + W)[1]
+    #         return np.linalg.slogdet(cov)[1] * var_bern
+
     X = reward_model.get_covariates_from_memory()
     if X is not None:
         f_X = reward_model.get_mean(X)
@@ -638,13 +658,53 @@ def acquisition_function_current_map_hessian_gp(
                 else:
                     _X = x
                     _f = f_x
-            hess = reward_model.neglog_posterior_hessian(_f, _X)
-            return np.linalg.slogdet(hess)[1]
+            map_cov = reward_model.neglog_posterior_hessian(_f, _X)
+            det = np.linalg.slogdet(map_cov)
+            sign = det[0]
+            val = det[1]
+            return -val
+
+    # if v is None:
+
+    #     def _get_val(x1, x2):
+    #         if x1.ndim == 1:
+    #             x1 = np.expand_dims(x1, axis=0)
+    #         if x2.ndim == 1:
+    #             x2 = np.expand_dims(x2, axis=0)
+    #         if reward_model.trajectory:
+    #             x = np.stack([x1, x2], axis=0)
+    #         else:
+    #             x = np.vstack([x1, x2])
+    #         f_x = reward_model.get_mean(x)
+    #         W = reward_model.neglog_likelihood_hessian(f_x)
+    #         cov_regress = reward_model.get_regression_covariance(x)
+    #         cov = reward_model.get_covariance(x)
+    #         mat = (
+    #             cov_regress
+    #             - cov_regress @ matrix_inverse(cov_regress + W) @ cov_regress
+    #         ) + np.eye(2) * 1e-10
+    #         # L = np.linalg.cholesky(mat)
+    #         # part_1 = np.eye(cov.shape[0]) + L.T @ (cov - cov_regress) @ L
+    #         # part_2 = cov_regress + W
+    #         # val = np.linalg.slogdet(part_1)[1] +  np.linalg.slogdet(part_2)[1]
+    #         part1 = np.linalg.slogdet(mat)
+    #         sign1 = part1[0]
+    #         val1 = part1[1]
+
+    #         part2 = np.linalg.slogdet(cov_regress + W)
+    #         sign2 = part2[0]
+    #         val2 = part2[1]
+
+    #         part3 = np.linalg.slogdet(matrix_inverse(mat) + (cov - cov_regress))
+    #         sign3 = part3[0]
+    #         val3 = part3[1]
+    #         val = 1 * val1 + 1 * val2 + 1 * val3
+    #         return val
 
     else:
         raise NotImplementedError()
 
-    utility = Parallel(n_jobs=n_jobs, backend="multiprocessing")(
+    utility = Parallel(n_jobs=1, backend="multiprocessing")(
         delayed(_get_val)(*x) for x in candidate_queries
     )
     argmax = argmax_over_index_set(utility, range(len(candidate_queries)))
@@ -687,9 +747,6 @@ def acquisition_function_variance_ratio(
         Union[np.ndarray, List[np.ndarray, np.ndarray], List[np.ndarray, np.ndarray, int]]
     """
     global _get_val
-    X = reward_model.get_covariates_from_memory()
-    if X is not None:
-        f_X = reward_model.get_mean(X)
     if v is None:
 
         def _get_val(x1, x2):
@@ -703,11 +760,10 @@ def acquisition_function_variance_ratio(
                 x = np.vstack([x1, x2])
 
             f_x = reward_model.get_mean(x)
-            cov = reward_model.get_covariance(x)
             f_x_diff = f_x[0] - f_x[1]
+            cov = np.linalg.det(reward_model.get_covariance(x))
             var_bern = expit(f_x_diff) * (1 - expit(f_x_diff))
-            var_ker = np.linalg.det(cov)
-            return var_bern * var_ker
+            return var_bern * cov
 
     else:
         raise NotImplementedError()

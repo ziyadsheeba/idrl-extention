@@ -819,6 +819,13 @@ class GPLogisticRewardModel(LogisticRewardModel):
         cov = self.approximate_posterior.get_covariance(x, X, self.K_inv, self.cov_map)
         return cov
 
+    def get_regression_covariance(self, x):
+        X = self.get_covariates_from_memory()
+        if x.ndim == 1:
+            x = np.expand_dims(x, axis=0)
+        cov = self.approximate_posterior.get_regression_covariance(x, X, self.K_inv)
+        return cov
+
     def get_covariates_from_memory(self):
         if len(self.X) == 0:
             X = None
@@ -828,6 +835,26 @@ class GPLogisticRewardModel(LogisticRewardModel):
             else:
                 X = np.vstack(self.X)
         return X
+
+    def get_predictive_covariance(
+        self,
+        x: np.ndarray,
+    ):
+        """Accepts only a pair of states as a first argument.
+
+        Args:
+            x (np.ndarray): _description_
+            X (np.ndarray): _description_
+            K_inv (np.ndarray, optional): _description_. Defaults to None.
+            cov_map (np.ndarray, optional): _description_. Defaults to None.
+        """
+        X = self.get_covariates_from_memory()
+        # TODO: Add an assertation to ensure a pair of states is passed
+        cov = self.get_covariance(x)
+        mean = self.get_mean(x)
+        mean_diff = mean[0] - mean[1]
+        bern_variance = (expit(mean_diff) * (1 - expit(mean_diff))).item()
+        return cov * bern_variance
 
     def predict_label(self, f_x, threshold: float = 0.5):
         f_x_reduced = np.array([f_x[i] - f_x[i + 1] for i in range(0, len(f_x), 2)])

@@ -24,7 +24,7 @@ from src.aquisition_functions.aquisition_functions import (
     acquisition_function_variance_ratio,
 )
 from src.constants import EXPERIMENTS_PATH
-from src.reward_models.kernels import RBFKernel
+from src.reward_models.kernels import LinearKernel, RBFKernel
 from src.reward_models.logistic_reward_models import (
     GPLogisticRewardModel,
     LogisticRewardModel,
@@ -211,8 +211,8 @@ def simultate(
         plt.plot(points, prediction)
         plt.fill_between(
             points,
-            (prediction + 3 * var),
-            (prediction - 3 * var),
+            (prediction + 1 * var),
+            (prediction - 1 * var),
             color="b",
             alpha=0.1,
         )

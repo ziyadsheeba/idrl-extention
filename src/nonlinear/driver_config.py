@@ -3,7 +3,7 @@ from numpy import pi
 from src.constants import DRIVER_STATES_TESTSET_PATH, DRIVER_TRAJECTORIES_TESTSET_PATH
 
 DIMENSIONALITY = 8
-ALGORITHM = "variance_ratio"
+ALGORITHM = "predicted_variance"
 SIMULATION_STEPS = 200
 NUM_CANDIDATE_POLICIES = 8
 NUM_QUERY = 400  # number of states, the number of queries will be n*(n-1)/4
@@ -17,7 +17,7 @@ KERNEL_PARAMS = {
     "dim": DIMENSIONALITY,
     "lengthscale": 1,
     "obs_var": 1e-8,
-    "variance": 4,
+    "variance": 1,
     "constant": 0,
 }
 if TRAJECTORY_QUERY:

@@ -99,26 +99,26 @@ def simultate(
             )
             agent.update_belief(*query_best, label)
 
-            estimated_policy = agent.get_mean_optimal_policy()
-            r_estimate = env.simulate(estimated_policy)
-            r_optimal = env.simulate(optimal_policy)
-            r_diff = r_optimal - r_estimate
-            policy_regret[step] = r_diff if r_diff > 0 else 0
+            # estimated_policy = agent.get_mean_optimal_policy()
+            # r_estimate = env.simulate(estimated_policy)
+            # r_optimal = env.simulate(optimal_policy)
+            # r_diff = r_optimal - r_estimate
+            # policy_regret[step] = r_diff if r_diff > 0 else 0
             neglog_likelihood[step] = agent.get_testset_neglog_likelihood()
             accuracy[step] = agent.get_testset_accuracy()
 
-            mlflow.log_metric("policy_regret", policy_regret[step], step=step)
+            # mlflow.log_metric("policy_regret", policy_regret[step], step=step)
             mlflow.log_metric("neglog_likelihood", neglog_likelihood[step], step=step)
             mlflow.log_metric("accuracy", accuracy[step], step=step)
-            steps.set_description(f"Policy Regret {policy_regret[step]}")
+            # steps.set_description(f"Policy Regret {policy_regret[step]}")
 
             if step % query_logging_rate == 0:
 
-                env.simulate(estimated_policy)
+                # env.simulate(estimated_policy)
 
-                # plot the history
-                env.plot_history()
-                mlflow.log_figure(plt.gcf(), f"driver_{step}.pdf")
+                # # plot the history
+                # env.plot_history()
+                # mlflow.log_figure(plt.gcf(), f"driver_{step}.pdf")
 
                 # log the latest comparison query
                 if trajectory_query:

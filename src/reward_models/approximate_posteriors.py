@@ -137,6 +137,40 @@ class GPLaplaceApproximation(ApproximatePosterior):
             cov = self.kernel.eval(x, x)
         return cov
 
+    def get_regression_covariance(
+        self,
+        x: np.ndarray,
+        X: np.ndarray,
+        K_inv: np.ndarray = None,
+    ):
+        k_x_x = self.kernel.eval(x, x)
+        if X is not None:
+            k_x_X = self.kernel.eval(x, X)
+            if K_inv is None:
+                K = self.kernel.eval(X, X)
+                K_inv = matrix_inverse(K)
+            cov = k_x_x - k_x_X @ K_inv @ k_x_X.T
+        else:
+            cov = k_x_x
+        return cov
+
+    def get_regression_covariance(
+        self,
+        x: np.ndarray,
+        X: np.ndarray,
+        K_inv: np.ndarray = None,
+    ):
+        k_x_x = self.kernel.eval(x, x)
+        if X is not None:
+            k_x_X = self.kernel.eval(x, X)
+            if K_inv is None:
+                K = self.kernel.eval(X, X)
+                K_inv = matrix_inverse(K)
+            cov = k_x_x - k_x_X @ K_inv @ k_x_X.T
+        else:
+            cov = k_x_x
+        return cov
+
     def update(
         self,
         X: np.ndarray,

@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from typing import Callable, Dict, List, Optional, Tuple
 
 import numpy as np
+from src.utils import timeit
 
 
 class Kernel(ABC):
@@ -11,7 +12,7 @@ class Kernel(ABC):
 
 
 class LinearKernel(Kernel):
-    def __init__(self, dim: int, obs_var: float = 1e-8):
+    def __init__(self, dim: int, obs_var: float = 1e-1):
         """An implementation of a linear kernel function
 
         Args:
